@@ -1,0 +1,63 @@
+# Secrets / local environment
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.crt
+*.p12
+*.pfx
+
+# Python
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Browser automation state
+backend/chrome_profiles/
+chrome_profiles/
+backend/.playwright-browsers/
+.playwright-browsers/
+playwright-report/
+test-results/
+storage_state*.json
+*.har
+trace.zip
+
+# User uploads / generated private documents
+uploads/
+backend/uploads/
+resumes/
+backend/resumes/
+*.pdf
+*.docx
+
+# Logs and local databases
+*.log
+*.sqlite
+*.sqlite3
+*.db
+
+# Frontend / Node
+node_modules/
+dist/
+build/
+.next/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+
+# docs
+/docs  
