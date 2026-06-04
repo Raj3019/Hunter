@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from ai.resume_parser import extract_text_from_pdf, parse_resume
 from core.auth import get_current_user_id
 from core.database import get_db
+from core.storage import create_signed_resume_url
 
 router = APIRouter()
 MAX_RESUME_BYTES = 10 * 1024 * 1024
@@ -69,4 +70,5 @@ async def get_parsed_resume(user_id: str = Depends(get_current_user_id)):
 
     if not result.data:
         raise HTTPException(status_code=404, detail="No resume found - please upload first")
+    result.data["file_url"] = create_signed_resume_url(db, result.data.get("file_url", ""))
     return result.data

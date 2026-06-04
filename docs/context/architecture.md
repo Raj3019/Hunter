@@ -54,7 +54,7 @@ Hunter treats tailoring as a per-job draft artifact flow, not as a silent mutati
 9. Manual Apply now and auto-apply use the approved tailored artifact for that job when present. If no approved tailored artifact exists, they use the latest uploaded base resume.
 10. Every application record stores the exact `resume_version` and `tailored_resume_url` used.
 
-MVP output format is `.docx` because Hunter already depends on `python-docx` and most ATS upload forms accept DOCX. PDF conversion/visual inspection can be added later as a quality step, but should not block the first working artifact flow.
+MVP output format is `.docx` because Hunter already depends on `python-docx` and most ATS upload forms accept DOCX. After the apply flow is stable, add an optional LaTeX/PDF compile loop for polished recruiter-facing exports, visual preview, and final PDF downloads. The PDF path should be an additive export layer, not a replacement for the DOCX artifact used by ATS upload flows.
 
 ## Auth and Access Model
 

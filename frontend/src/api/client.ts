@@ -57,8 +57,8 @@ export const jobsAPI = {
   approve: (id: string) => api.post(`/api/jobs/${id}/approve`),
   skip: (id: string) => api.post(`/api/jobs/${id}/skip`),
   tailor: (id: string) => api.post(`/api/jobs/${id}/tailor`),
-  approveTailored: (id: string, tailored_resume_url = "", tailored_resume_version = "tailored") =>
-    api.post(`/api/jobs/${id}/tailor/approve`, { tailored_resume_url, tailored_resume_version }),
+  approveTailored: (id: string, tailored_resume_id: string) =>
+    api.post(`/api/jobs/${id}/tailor/approve`, { tailored_resume_id }),
   apply: (id: string) => api.post(`/api/jobs/${id}/apply`),
 };
 

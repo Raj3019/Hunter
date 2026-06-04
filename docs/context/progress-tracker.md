@@ -247,10 +247,28 @@ Update this file after every meaningful implementation change.
   - Documented Tailor as a per-job draft artifact flow: generate draft, validate no fabricated claims, store DOCX metadata in `tailored_resumes`, show review UI, approve a real draft id, then use that approved artifact during apply
   - Clarified that the base uploaded resume is never overwritten and empty tailored-resume approvals are invalid
   - Added the `tailored_resumes` schema, RLS policy, storage path convention, API response/request contracts, frontend API helper contract, and modal design requirements
+- **Tailored Resume Artifact Implementation** (`backend/migrations/002_tailored_resume_artifacts.sql`, `backend/services/tailored_resume_service.py`, `backend/api/routes/jobs.py`, `frontend/src/api/client.ts`, `frontend/src/components/TailorModal.tsx`, `backend/test_tailored_resume_service.py`)
+  - Added the `tailored_resumes` migration/table for per-job draft artifacts, validation metadata, generated file URLs, and approval status
+  - Added a tailored resume service that validates AI output, removes unsupported reordered skills, generates a DOCX draft with `python-docx`, uploads it to Supabase Storage, and inserts a draft row
+  - Updated `/api/jobs/{id}/tailor` to return sanitized tailoring plus draft metadata, and updated `/api/jobs/{id}/tailor/approve` to require a real `tailored_resume_id`
+  - Updated the Tailor modal to show parsed current resume sections, generated draft version/status/file type, validation warnings, download draft, and approve-by-draft-id behavior
+  - Verified `python backend\test_tailored_resume_service.py`, `python -m compileall backend\api\routes\jobs.py backend\services\tailored_resume_service.py`, and `npm run build` pass
+- **Private Resume Storage Signed URL Fix** (`backend/core/storage.py`, `backend/services/tailored_resume_service.py`, `backend/api/routes/jobs.py`, `backend/api/routes/resume.py`)
+  - Fixed Tailor draft downloads for the private `resumes` bucket by returning Supabase signed URLs instead of `/object/public/...` URLs
+  - Added storage URL/path parsing so stored public-style URLs can still be converted into fresh signed URLs for frontend downloads and Apply now staging
+  - Updated parsed resume and apply resume artifact resolution to use signed URLs for private bucket access
+  - Verified `python backend\test_tailored_resume_service.py`, `python -m compileall backend\api\routes\jobs.py backend\api\routes\resume.py backend\core\storage.py backend\services\tailored_resume_service.py`, and `npm run build` pass
+- **Tailored DOCX Completeness/Filename Polish** (`backend/services/tailored_resume_service.py`, `backend/test_tailored_resume_service.py`)
+  - Improved generated DOCX content so it includes a cleaned original-resume-content section after the tailored summary/skills/highlights, reducing the incomplete draft feel
+  - Fixed list rendering for parsed dict fields such as `education_details` so the DOCX no longer shows Python dict strings
+  - Changed generated storage filename to use the original resume filename stem with `-tailor.docx` appended, stored under the version folder for uniqueness
+  - Verified `python backend\test_tailored_resume_service.py` and `python -m compileall backend\services\tailored_resume_service.py backend\api\routes\jobs.py` pass
+- **Tailored Resume Live Verification**
+  - User confirmed the regenerated Tailor flow now downloads a proper tailored resume DOCX with expected content and filename behavior
 
 ## In Progress
 
-- **Tailored resume artifact implementation / real match generation** is the active next implementation priority. The user ran `backend/migrations/001_mvp_live_flow_apply_modes.sql` successfully in Supabase SQL Editor, the React app uses backend APIs for authenticated state, the live MVP API smoke check passed, and the approved seeded match remains visible with Apply now. The next backend/frontend change should implement the documented `tailored_resumes` draft artifact flow before relying on tailored resumes for apply.
+- **Apply/tracker verification / real match generation** is the active next implementation priority. The user ran `backend/migrations/001_mvp_live_flow_apply_modes.sql` and `backend/migrations/002_tailored_resume_artifacts.sql` successfully in Supabase SQL Editor, the React app uses backend APIs for authenticated state, the live MVP API smoke check passed, the approved seeded match remains visible with Apply now, and Tailor now generates a proper job-specific DOCX artifact.
 - Phase 1 remaining gate: real Easy Apply test is still commented in `backend/test_naukri.py` and should only be run with explicit approval on a real job through SafeApplyManager.
 - Foundit real apply remains commented until explicit approval on a real target job through SafeApplyManager.
 - Internshala real apply remains commented until the persistent browser profile has been logged in manually and explicit approval is given for a real target job through SafeApplyManager.
@@ -265,10 +283,10 @@ Update this file after every meaningful implementation change.
 
 ## Next Up
 
-1. **Tailored resume artifact implementation**: add the `tailored_resumes` migration/table, generate a DOCX draft with `python-docx`, upload it to Supabase Storage, return draft metadata from `/api/jobs/{id}/tailor`, and require `tailored_resume_id` in `/api/jobs/{id}/tailor/approve`.
-2. **Tailor endpoint live verification**: run tailoring against the seeded or real job match and confirm the modal shows AI suggestions, validation, generated draft version, and approve/download actions.
-3. **Apply now failure-log verification on seed**: optional only; click Apply now on the dummy seed only if intentionally testing tracker-visible blocked/failed logging, because its apply link is not a real job.
-4. **Real match generation**: connect at least one portal token/account, save preferences, upload a resume, then run the scheduler/admin fetch path so `/api/jobs/matches` contains portal-sourced rows.
+1. **Approve tailored artifact verification**: approve the generated tailored resume draft and confirm the match stores the tailored resume version for Apply now.
+2. **Apply now failure-log verification on seed**: optional only; click Apply now on the dummy seed only if intentionally testing tracker-visible blocked/failed logging, because its apply link is not a real job.
+3. **Real match generation**: connect at least one portal token/account, save preferences, upload a resume, then run the scheduler/admin fetch path so `/api/jobs/matches` contains portal-sourced rows.
+4. **Future PDF export layer**: after the DOCX/apply flow is stable, add a LaTeX/PDF compile loop for polished recruiter-facing tailored resume PDFs while keeping DOCX as the default ATS upload artifact.
 5. **Auto-apply runner**: use saved settings for daily limit, min score, allowed portals, safe window, and tailored-resume requirement; never auto-apply below the configured score threshold.
 6. **AI layer live verification**: replace invalid `ANTHROPIC_API_KEY` or configure OpenRouter (`AI_PROVIDER=openrouter`, `AI_MODEL=<model-id>`, `OPENROUTER_API_KEY`), then rerun `python test_ai_layer.py`.
 7. **Scheduler live verification**: after portal tokens/preferences/resume exist, run `RUN_SCHEDULER_FULL=1 python test_scheduler.py`.
@@ -305,6 +323,7 @@ Update this file after every meaningful implementation change.
 - Job snapshots are intentional: Hunter stores job details for review, scoring, dedupe, and tracker history, while the source portal remains the final source of truth for availability and submission.
 - Apply behavior now has two intended modes: Manual Apply now submits immediately after pre-apply checks pass; auto-apply is user-enabled and throttled by SafeApplyManager.
 - Tailored resume behavior now has a documented artifact lifecycle inspired by the reviewed `MadsLorentzen/ai-job-search` workflow pattern: draft, validate, user-review, approve, then apply with the exact approved version. Hunter will implement this with `.docx` artifacts and Supabase Storage for MVP rather than a LaTeX/PDF compile loop.
+- Add LaTeX/PDF compile loop later as an optional export-quality layer for polished tailored PDFs. Keep DOCX as the practical ATS upload artifact until real apply flows are stable.
 - Frontend theme decision changed on June 3, 2026: dark remains the default first-run theme, but the React app must support a persisted light theme using `hunter_theme` in localStorage and `data-theme` on the document root.
 - Product design handoff lives at `docs/feature-specs/14c-product-design.md`; use it with `14-react-frontend.md` and `14b-frontend-ux-blueprint.md` when implementing the frontend.
 - Core backend entrypoint must stay at `backend/main.py` so `cd backend && uvicorn main:app --reload --port 8000` works as documented.
@@ -346,6 +365,7 @@ Update this file after every meaningful implementation change.
 - Full scheduler run can launch browser automation and AI scoring. Use `RUN_SCHEDULER_FULL=1 python test_scheduler.py` only after confirming stored portal tokens, preferences, parsed resume, and AI provider key/model are ready.
 - API routes are mounted as of June 2, 2026. `python-multipart` is required for `/api/resume/upload`; it is now pinned in requirements and installed in the local `.venv`.
 - Job apply API uses FastAPI `BackgroundTasks` and `_run_manual_apply()`: manual Apply now runs pre-apply checks, resolves uploaded/approved resume artifacts, submits immediately when clear, logs the application audit row, and updates tracker-visible status. Auto-apply should continue through SafeApplyManager throttling.
+- Tailor API now creates a generated DOCX draft and `tailored_resumes` row before approval. Live testing requires running `backend/migrations/002_tailored_resume_artifacts.sql` after the already-applied MVP live flow migration.
 - Live MVP smoke check command: `cd backend && python scripts/live_mvp_api_check.py` after setting `HUNTER_TEST_EMAIL`, `HUNTER_TEST_PASSWORD`, and optionally `HUNTER_TEST_RESUME`.
 - Live match seed command: `cd backend && python scripts/seed_live_match.py` after setting `HUNTER_TEST_EMAIL` or `HUNTER_TEST_USER_ID`; cleanup uses `HUNTER_SEED_CLEANUP=1 python scripts/seed_live_match.py`.
 - All Chrome profiles must be stored on the same EC2 instance as the backend; they cannot be replicated or moved.

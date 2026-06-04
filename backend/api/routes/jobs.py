@@ -1,6 +1,7 @@
 import logging
 import os
 import tempfile
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
@@ -9,8 +10,10 @@ import httpx
 from ai.resume_tailor import tailor_resume
 from core.auth import get_current_user_id
 from core.database import get_db
+from core.storage import create_signed_resume_url
 from portals.base import SafeApplyManager
 from portals.naukri.jobs import Job
+from services.tailored_resume_service import create_tailored_resume_draft
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -18,8 +21,7 @@ VISIBLE_MATCH_STATUSES = ["pending", "approved", "blocked", "needs_review", "fai
 
 
 class TailorApprovalIn(BaseModel):
-    tailored_resume_url: str = ""
-    tailored_resume_version: str = "tailored"
+    tailored_resume_id: str
 
 
 @router.get("/matches")
@@ -64,7 +66,7 @@ async def tailor_for_match(match_id: str, user_id: str = Depends(get_current_use
     if not match.data:
         raise HTTPException(status_code=404, detail="Match not found")
 
-    resume_data = db.table("resumes").select("parsed_data, raw_text").eq(
+    resume_data = db.table("resumes").select("id, parsed_data, raw_text, file_url, created_at").eq(
         "user_id",
         user_id,
     ).order("created_at", desc=True).limit(1).maybe_single().execute()
@@ -78,8 +80,15 @@ async def tailor_for_match(match_id: str, user_id: str = Depends(get_current_use
         job_description=job.get("description", ""),
         job_title=job.get("title", ""),
     )
+    draft = create_tailored_resume_draft(
+        db=db,
+        user_id=user_id,
+        match_data=match.data,
+        resume_data=resume_data.data,
+        tailored=tailored,
+    )
 
-    return {"success": True, "tailored": tailored}
+    return {"success": True, "tailored": draft.get("tailoring") or tailored, "draft": draft}
 
 
 @router.post("/{match_id}/tailor/approve")
@@ -96,12 +105,41 @@ async def approve_tailored_resume(
     if not match.data:
         raise HTTPException(status_code=404, detail="Match not found")
 
+    draft = db.table("tailored_resumes").select("*").eq(
+        "id",
+        body.tailored_resume_id,
+    ).eq("match_id", match_id).eq("user_id", user_id).maybe_single().execute()
+    if not draft.data:
+        raise HTTPException(status_code=404, detail="Tailored resume draft not found")
+
+    validation = draft.data.get("validation_json") or {}
+    if draft.data.get("status") == "failed_validation" or not validation.get("ok", True):
+        raise HTTPException(status_code=400, detail="Tailored resume draft has validation blockers")
+
+    if not draft.data.get("file_url"):
+        raise HTTPException(status_code=400, detail="Tailored resume draft has no generated file")
+
+    db.table("tailored_resumes").update({"status": "superseded"}).eq(
+        "user_id",
+        user_id,
+    ).eq("match_id", match_id).eq("status", "approved").neq(
+        "id",
+        body.tailored_resume_id,
+    ).execute()
+
+    db.table("tailored_resumes").update({
+        "status": "approved",
+        "approved_at": datetime.now(timezone.utc).isoformat(),
+    }).eq(
+        "id",
+        body.tailored_resume_id,
+    ).eq("user_id", user_id).execute()
+
     payload = {
         "tailored_resume_approved": True,
-        "tailored_resume_version": body.tailored_resume_version,
+        "tailored_resume_url": draft.data.get("file_url"),
+        "tailored_resume_version": draft.data.get("version"),
     }
-    if body.tailored_resume_url:
-        payload["tailored_resume_url"] = body.tailored_resume_url
 
     db.table("job_matches").update(payload).eq(
         "id",
@@ -110,8 +148,9 @@ async def approve_tailored_resume(
     return {
         "success": True,
         "tailored_resume_approved": True,
-        "tailored_resume_version": body.tailored_resume_version,
-        "tailored_resume_url": body.tailored_resume_url,
+        "tailored_resume_id": body.tailored_resume_id,
+        "tailored_resume_version": draft.data.get("version"),
+        "tailored_resume_url": create_signed_resume_url(db, draft.data.get("file_url", "")),
     }
 
 
@@ -305,7 +344,7 @@ def _get_portal_token(db, user_id: str, portal: str) -> dict | None:
 def _get_resume_artifact(db, user_id: str, match_data: dict) -> dict:
     if match_data.get("tailored_resume_approved") and match_data.get("tailored_resume_url"):
         return {
-            "url": match_data.get("tailored_resume_url", ""),
+            "url": create_signed_resume_url(db, match_data.get("tailored_resume_url", "")),
             "version": match_data.get("tailored_resume_version") or "tailored",
         }
 
@@ -317,7 +356,7 @@ def _get_resume_artifact(db, user_id: str, match_data: dict) -> dict:
         return {"url": "", "version": ""}
 
     return {
-        "url": resume.data.get("file_url", ""),
+        "url": create_signed_resume_url(db, resume.data.get("file_url", "")),
         "version": f"base:{resume.data.get('created_at', '')}",
     }
 

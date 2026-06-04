@@ -371,6 +371,8 @@ Approval and apply usage:
 
 PDF conversion and visual layout inspection are future quality improvements. MVP should generate a reliable `.docx` artifact first because the project already depends on `python-docx`.
 
+Planned enhancement: add a LaTeX/PDF compile loop after the core apply flow is stable. The loop should generate a polished PDF from the approved tailored content, compile it, detect compile/layout failures, and expose the final PDF as an optional recruiter-facing export. Keep DOCX as the default ATS upload artifact unless a portal explicitly prefers PDF.
+
 ### Step 5 — `backend/ai/qa_answerer.py`
 
 ```python
