@@ -1,8 +1,8 @@
 import logging
 import random
 import time
-from inspect import isawaitable
 from datetime import datetime, timezone
+from inspect import isawaitable
 from zoneinfo import ZoneInfo
 
 from core.database import get_db
@@ -40,7 +40,7 @@ PORTAL_DELAYS = {
 }
 
 SAFE_HOUR_START = 9
-SAFE_HOUR_END = 24
+SAFE_HOUR_END = 20
 
 
 def _format_safe_hour(hour: int) -> str:
@@ -90,6 +90,7 @@ class SafeApplyManager:
         job,
         result: dict,
         tailored_resume_url: str = "",
+        resume_version: str = "",
     ) -> None:
         try:
             db_job_id = self._get_or_create_db_job_id(job)
@@ -97,13 +98,24 @@ class SafeApplyManager:
                 logger.error("Failed to resolve DB job id for application log")
                 return
 
+            success = self._is_apply_success(result)
+            blocked = bool(result.get("blocked"))
+            status = "applied" if success else "blocked" if blocked else "failed"
+            reason = self._result_notes(result)
+
             self.db.table("applications").insert({
                 "user_id": user_id,
                 "job_id": db_job_id,
                 "portal": job.portal if hasattr(job, "portal") else job.get("portal"),
-                "status": "applied" if self._is_apply_success(result) else "failed",
+                "status": status,
+                "apply_mode": result.get("apply_mode", "manual"),
+                "pre_apply_check": result.get("pre_apply_check") or {},
+                "portal_response": result.get("portal_response") or result,
                 "tailored_resume_url": tailored_resume_url,
-                "notes": self._result_notes(result),
+                "resume_version": result.get("resume_version") or resume_version,
+                "blocked_reason": reason if blocked else "",
+                "failed_reason": reason if not success and not blocked else "",
+                "notes": reason,
             }).execute()
         except Exception as exc:
             logger.error("Failed to log application to DB: %s", exc)
@@ -238,16 +250,19 @@ async def run_safe_apply_for_user(
     ok, reason = manager.can_apply(user_id, portal)
     if not ok:
         logger.info("Apply blocked: %s", reason)
-        return {"success": False, "reason": reason, "blocked": True}
+        result = {"success": False, "reason": reason, "blocked": True, "apply_mode": "auto"}
+        manager.log_application(user_id, job, result, tailored_resume_url=tailored_resume_url)
+        return result
 
     result = apply_callable()
     if isawaitable(result):
         result = await result
+    result.setdefault("apply_mode", "auto")
 
     manager.log_application(user_id, job, result, tailored_resume_url=tailored_resume_url)
 
     db_job_id = manager._get_or_create_db_job_id(job)
-    status = "applied" if manager._is_apply_success(result) else "pending"
+    status = "applied" if manager._is_apply_success(result) else "failed"
     if db_job_id:
         manager.update_job_match_status(user_id, db_job_id, status)
 

@@ -51,7 +51,7 @@ def test_time_window():
     assert 0 <= SAFE_HOUR_START <= 23
     assert 1 <= SAFE_HOUR_END <= 24
     assert _format_safe_hour(SAFE_HOUR_START) == "9:00 AM"
-    assert _format_safe_hour(SAFE_HOUR_END) == "12:00 AM"
+    assert _format_safe_hour(SAFE_HOUR_END) == "8:00 PM"
     print(f"[PASS] Safe hours: {_format_safe_hour(SAFE_HOUR_START)} to {_format_safe_hour(SAFE_HOUR_END)} IST")
 
 
@@ -65,15 +65,25 @@ def test_can_apply_outside_hours():
     print("[PASS] Blocked outside safe hours")
 
 
-def test_can_apply_evening_before_midnight():
+def test_can_apply_evening_before_window_end():
     manager = _manager()
     with patch("portals.base.datetime") as mock_dt:
-        mock_dt.now.return_value = datetime(2025, 1, 1, 21, 39, 0, tzinfo=IST)
+        mock_dt.now.return_value = datetime(2025, 1, 1, 19, 39, 0, tzinfo=IST)
         with patch.object(manager, "_get_today_count", return_value=0):
             ok, reason = manager.can_apply("test_user_id", "naukri")
     assert ok
     assert reason == "ok"
-    print("[PASS] Allowed evening apply before midnight")
+    print("[PASS] Allowed evening apply before window end")
+
+
+def test_can_apply_blocks_after_window_end():
+    manager = _manager()
+    with patch("portals.base.datetime") as mock_dt:
+        mock_dt.now.return_value = datetime(2025, 1, 1, 21, 39, 0, tzinfo=IST)
+        ok, reason = manager.can_apply("test_user_id", "naukri")
+    assert not ok
+    assert "9:00 AM-8:00 PM IST" in reason
+    print("[PASS] Blocked after safe window end")
 
 
 def test_can_apply_blocks_at_midnight():
@@ -82,7 +92,7 @@ def test_can_apply_blocks_at_midnight():
         mock_dt.now.return_value = datetime(2025, 1, 2, 0, 0, 0, tzinfo=IST)
         ok, reason = manager.can_apply("test_user_id", "naukri")
     assert not ok
-    assert "9:00 AM-12:00 AM IST" in reason
+    assert "9:00 AM-8:00 PM IST" in reason
     print("[PASS] Blocked at midnight")
 
 
@@ -206,7 +216,8 @@ if __name__ == "__main__":
     test_portal_limits_defined()
     test_time_window()
     test_can_apply_outside_hours()
-    test_can_apply_evening_before_midnight()
+    test_can_apply_evening_before_window_end()
+    test_can_apply_blocks_after_window_end()
     test_can_apply_blocks_at_midnight()
     test_can_apply_daily_limit_reached()
     test_can_apply_inside_hours_below_limit()

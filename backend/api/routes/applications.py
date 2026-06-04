@@ -7,7 +7,18 @@ from core.auth import get_current_user_id
 from core.database import get_db
 
 router = APIRouter()
-VALID_STATUSES = {"applied", "viewed", "rejected", "interview", "offer"}
+VALID_STATUSES = {
+    "approved",
+    "applied",
+    "viewed",
+    "interview",
+    "offer",
+    "rejected",
+    "archived",
+    "blocked",
+    "failed",
+    "needs_review",
+}
 
 
 class StatusUpdate(BaseModel):

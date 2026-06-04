@@ -2,11 +2,13 @@ import asyncio
 import logging
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.routes import applications, auth, company_accounts, jobs, portals, preferences, resume
+from core.auth import get_current_user_id
 from core.config import FRONTEND_URL
+from core.database import get_db
 from scheduler.daily_fetch import daily_job_fetch
 
 logger = logging.getLogger(__name__)
@@ -59,6 +61,14 @@ async def health():
 
 
 @app.post("/api/admin/trigger-fetch")
-async def trigger_fetch():
+async def trigger_fetch(user_id: str = Depends(get_current_user_id)):
+    db = get_db()
+    profile = db.table("profiles").select("is_admin").eq(
+        "id",
+        user_id,
+    ).maybe_single().execute()
+    if not profile.data or not profile.data.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+
     asyncio.create_task(daily_job_fetch())
     return {"message": "Fetch triggered in background"}

@@ -1,0 +1,351 @@
+# Progress Tracker
+
+Update this file after every meaningful implementation change.
+
+## Current Phase
+
+- MVP Live Flow + Apply Modes implementation is ready for seeded match UI verification and real portal/scheduler data. Backend contracts, frontend live wiring, and live API smoke checks are in place.
+
+## Current Goal
+
+- Implement the live MVP flow from the existing specs: real auth, resume upload, preferences, portal status, job matches, tracker data, manual Apply now, resume tailoring approval, status alignment, and optional auto-apply controls.
+
+## Completed
+
+- **Core Backend Setup** (`docs/feature-specs/02-core-backend-setup.md`)
+  - Added FastAPI app entrypoint at `backend/main.py` with CORS and `/health`
+  - Added environment config in `backend/core/config.py`
+  - Added Supabase client helpers in `backend/core/database.py`
+  - Added Fernet encryption utility in `backend/core/encryption.py`
+  - Added JWT verification helper in `backend/core/auth.py`
+  - Added core validation scripts: `backend/test_encryption.py`, `backend/test_db_connection.py`
+  - Added pinned dependency manifest at `backend/requirements.txt`
+- **Naukri Portal code** (`docs/feature-specs/03-naukri-portal.md`)
+  - Added `backend/portals/naukri/auth.py` with `NaukriAuthClient` and `NaukriSession`
+  - Added `backend/portals/naukri/nkparam.py` with native RSA-based nkparam generation and Playwright-based interception fallback
+  - Added `backend/portals/naukri/jobs.py` with shared `Job` dataclass, recommended jobs, search, parsing, and Easy Apply call
+  - Added package markers for `backend/portals/` and `backend/portals/naukri/`
+  - Added `backend/test_naukri.py` with login, recommended jobs, and job search checks; real apply test remains commented
+  - Verified `python test_naukri.py` passes for login, recommended jobs, and job search after fixing search response encoding
+- **Foundit Portal code** (`docs/feature-specs/04-foundit-portal.md`)
+  - Added `backend/portals/foundit/auth.py` with `FounditAuthClient` and `FounditSession`
+  - Added `backend/portals/foundit/jobs.py` with search, parsing, and direct apply call
+  - Added package marker for `backend/portals/foundit/`
+  - Added `backend/test_foundit.py` with login, token validity, and job search checks; real apply test remains commented
+  - Fixed stale Foundit endpoints discovered during live verification: login now uses `/seeker-profile/api/login`; job search now uses `/raven/api/public/search/v2/jobs`
+  - Verified `python test_foundit.py` passes for login, token validity, and job search; real apply remains commented
+- **Internshala Portal code** (`docs/feature-specs/05-internshala-portal.md`)
+  - Added `backend/portals/internshala/auth.py` with CSRF extraction and current login verification endpoint
+  - Added `backend/portals/internshala/jobs.py` with internship/job search, JSON parsing, and current HTML fallback parsing
+  - Added `backend/portals/internshala/apply.py` with Playwright-based apply modal automation
+  - Added `backend/portals/internshala/setup_browser_session.py` for one-time persistent browser login
+  - Added package marker for `backend/portals/internshala/`
+  - Added `backend/test_internshala.py` with captcha-aware login handling, internship search, and job search checks; real apply test remains commented
+  - Added `beautifulsoup4` to `backend/requirements.txt`
+  - Verified `python test_internshala.py` passes search checks against live Internshala HTML responses; requests login is skipped because live Internshala requires reCAPTCHA
+- **LinkedIn Portal code** (`docs/feature-specs/06-linkedin-portal.md`)
+  - Added `backend/portals/linkedin/setup_session.py` for one-time persistent browser login
+  - Added `backend/portals/linkedin/auth.py` with headless session status check
+  - Added `backend/portals/linkedin/jobs.py` with Easy Apply-only search navigation and Voyager response interception
+  - Added `backend/portals/linkedin/apply.py` with Playwright Easy Apply form walker and guarded AI-question fallback until `ai/qa_answerer.py` exists
+  - Added package marker for `backend/portals/linkedin/`
+  - Added `backend/test_linkedin.py` with session check, search check, and commented real Easy Apply test
+  - Verified LinkedIn modules compile and import; verified Voyager parser against a mock response
+  - Installed Playwright Chromium for browser automation. Live `python test_linkedin.py` still requires user-approved run after `python -m portals.linkedin.setup_session`
+- **Workday Portal code** (`docs/feature-specs/07-workday-portal.md`)
+  - Added `backend/portals/workday/companies.py` with a registry for Wipro, IBM, Capgemini, Deloitte, PwC, EY, Adobe, Cisco, Dell, and KPMG
+  - Added `backend/portals/workday/jobs.py` with headless Playwright search and Workday API response interception
+  - Added `backend/portals/workday/apply.py` with Playwright apply flow, resume upload, text/dropdown filling, and guarded AI-question fallback until `ai/qa_answerer.py` exists
+  - Added package marker for `backend/portals/workday/`
+  - Added `backend/test_workday.py` for Wipro, Capgemini, and Adobe search checks; real apply test remains commented
+  - Verified Workday modules compile and import; verified Workday response parser against a mock response
+  - Hardened Workday search/test timeout handling so one slow company page returns a warning instead of crashing the whole test
+- **Taleo Portal code** (`docs/feature-specs/08-taleo-portal.md`)
+  - Added `backend/portals/taleo/companies.py` with HCL, Tech Mahindra, and Mphasis Taleo registry entries
+  - Added `backend/portals/taleo/jobs.py` with iframe-aware Taleo search and HTML result-row parsing
+  - Added `backend/portals/taleo/apply.py` with iframe-aware apply flow, resume upload, text/select filling, and guarded AI-question fallback until `ai/qa_answerer.py` exists
+  - Added package marker for `backend/portals/taleo/`
+  - Added `backend/test_taleo.py` with HCL-focused search checks; real apply remains commented/not invoked
+  - Verified Taleo modules compile and import
+- **Greenhouse Portal code** (`docs/feature-specs/08b-greenhouse-portal.md`)
+  - Added `backend/portals/greenhouse/companies.py` with 23 high-value company slugs from the spec
+  - Added `backend/portals/greenhouse/jobs.py` with public no-auth Greenhouse API search, detail fetch, client-side keyword/location filtering, HTML description cleanup, and slug discovery
+  - Added `backend/portals/greenhouse/apply.py` with standardized Greenhouse form filling, resume upload, custom question handling, and guarded AI-question fallback until `ai/qa_answerer.py` exists
+  - Added `backend/portals/greenhouse/discover.py` for Greenhouse slug discovery from careers pages
+  - Added package marker for `backend/portals/greenhouse/`
+  - Added `backend/test_greenhouse.py` with API access, keyword filter, multi-company search, job detail fetch, and unknown company handling
+  - Cleaned duplicate `beautifulsoup4` pin in `backend/requirements.txt`
+  - Verified `python test_greenhouse.py` passes against live Greenhouse API using PhonePe, Groww, and Postman
+- **Company Portal code** (`docs/feature-specs/09-company-portals.md`)
+  - Added `backend/portals/custom/registry.py` with TCS, Infosys, Cognizant, Wipro, and HCL portal configurations
+  - Added `backend/portals/custom/account_login.py` with persistent Chrome profile login and session checks
+  - Added `backend/portals/custom/company_apply.py` with company-account apply flow, resume upload, form filling, and guarded AI-question fallback until `ai/qa_answerer.py` exists
+  - Added package marker for `backend/portals/custom/`
+  - Added `backend/api/routes/company_accounts.py` with save/list/status/delete endpoints and password-safe responses
+  - Mounted company account routes in `backend/main.py` at `/api/company-accounts`
+  - Added API package markers at `backend/api/` and `backend/api/routes/`
+  - Added `backend/test_company_portals.py` with encryption round-trip, registry sanity checks, and opt-in browser session check
+  - Verified `python test_company_portals.py` passes encryption and registry checks; browser session check is opt-in via `RUN_COMPANY_BROWSER_CHECK=1`
+- **AI Layer code** (`docs/feature-specs/10-ai-layer.md`)
+  - Added provider selection in `backend/core/config.py` via `AI_PROVIDER`, `AI_MODEL`, `OPENROUTER_API_KEY`, and `OPENROUTER_BASE_URL`
+  - Added `backend/ai/llm_client.py` as the shared LLM adapter for Anthropic Claude and OpenRouter chat completions
+  - Added `backend/ai/resume_parser.py` with `pdfplumber` primary PDF extraction, `pypdf` fallback, and model-powered structured resume parsing
+  - Added `backend/ai/job_scorer.py` with model-powered 0-100 scoring, matched/missing skills, reasons, and `recommend_apply` clamping
+  - Added `backend/ai/resume_tailor.py` with model-powered no-fabrication resume tailoring output
+  - Added `backend/ai/qa_answerer.py` with direct profile lookups for common application questions and model fallback for contextual questions
+  - Added `backend/ai/utils.py` for common JSON response cleanup/code-fence stripping
+  - Added package marker for `backend/ai/`
+  - Added `backend/test_ai_layer.py` with direct Q&A checks and live provider checks for scorer/tailor/contextual Q&A
+  - Verified AI modules compile and import; direct Q&A checks pass
+  - Live provider API checks are skipped until `backend/.env` has a valid provider key/model; current run skipped because `ANTHROPIC_API_KEY` is missing for `AI_PROVIDER=anthropic`
+- **SafeApplyManager code** (`docs/feature-specs/11-safe-apply-manager.md`)
+  - Added `backend/portals/base.py` with `SafeApplyManager`
+  - Added conservative per-portal daily limits for Naukri, Foundit, Internshala, LinkedIn, Workday, Taleo, and custom company portals
+  - Added IST-only safe apply window, now aligned to 9am-8pm for auto-apply
+  - Added human-like random delay ranges per portal
+  - Added application logging into `applications` and job match status updates into `job_matches`
+  - Added daily apply stats for UI display
+  - Added `run_safe_apply_for_user()` helper to enforce the can-apply -> portal apply -> log -> status update -> delay sequence
+  - Removed old portal-local post-apply sleeps from Naukri, Foundit, Internshala, LinkedIn, Workday, Taleo, Greenhouse, and company portal apply functions so delay policy is centralized
+  - Updated commented real-apply examples in Naukri, Foundit, Internshala, LinkedIn, Workday, Taleo, Greenhouse, and company portal tests to call `run_safe_apply_for_user()` with `TEST_USER_ID`
+  - Fixed SafeApplyManager DB logging to resolve portal job IDs into internal `jobs.id` UUIDs before writing `applications` or updating `job_matches`
+  - Added Naukri apply-response success detection for `statusCode: 0` plus job/apply status `200`
+  - Added `backend/test_safe_apply_manager.py` covering limits, safe hours, daily limit blocking, delay ranges, stats shape, application log payload, and the safe apply runner
+  - Verified `python test_safe_apply_manager.py` passes
+- **Daily Job Fetch Scheduler code** (`docs/feature-specs/12-scheduler.md`)
+  - Added `backend/scheduler/daily_fetch.py` with `daily_job_fetch()`
+  - Added active user discovery from `portal_tokens` and active `company_accounts`
+  - Added per-user processing: load preferences, load latest parsed resume, fetch jobs, dedupe against existing matches, score with AI, and save `job_matches` with score >= 60
+  - Added portal fetch support for connected Naukri, Foundit, and LinkedIn tokens
+  - Added Greenhouse as an always-on public source using live slugs `phonepe`, `groww`, and `postman`
+  - Added job upsert/dedup helpers for `jobs` and `job_matches`
+  - Wired APScheduler into `backend/main.py` with an 8:00am IST daily cron
+  - Added manual admin trigger endpoint: `POST /api/admin/trigger-fetch`
+  - Added `backend/test_scheduler.py`; safe mode checks active users and skips full fetch unless `RUN_SCHEDULER_FULL=1`
+  - Verified scheduler files compile and `python test_scheduler.py` runs; current DB returned 0 active users, so live full fetch was not executed
+- **FastAPI Route Handlers** (`docs/feature-specs/13-api-routes.md`)
+  - Added `backend/api/routes/auth.py` with `/api/auth/login` and `/api/auth/register`
+  - Added `backend/api/routes/resume.py` with `/api/resume/upload` and `/api/resume/parsed`
+  - Added `backend/api/routes/preferences.py` with save/get preference endpoints
+  - Added `backend/api/routes/portals.py` with Naukri/Foundit token save, LinkedIn setup confirmation, and portal status
+  - Added `backend/api/routes/jobs.py` with matches, approve, skip, tailor, and background apply endpoints
+  - Added `backend/api/routes/applications.py` with tracker list/update endpoints
+  - Mounted all route modules in `backend/main.py`
+  - Added `python-multipart==0.0.9` to `backend/requirements.txt` and installed it in `.venv` for FastAPI file uploads
+  - Verified route modules compile, `main.py` imports from `.venv`, and expected `/api/...` routes are registered
+- **Frontend UX Blueprint** (`docs/feature-specs/14b-frontend-ux-blueprint.md`)
+  - Added a dense dark-app UX plan to complement `docs/feature-specs/14-react-frontend.md`
+  - Added ASCII wireframes for home, auth, onboarding, app shell, dashboard, jobs, tracker, detail drawer, resume tailor modal, portal connections, and settings
+  - Added page states, implementation notes, acceptance criteria, and frontend test plan
+- **Frontend Theme Spec Update** (`docs/feature-specs/14-react-frontend.md`, `docs/feature-specs/14b-frontend-ux-blueprint.md`, `docs/context/ui-context.md`)
+  - Updated frontend specs from dark-only to dark/default plus light theme support
+  - Added semantic light theme token values, theme persistence guidance, toggle placement, and light-mode visual rules
+  - Updated frontend acceptance/manual test notes to require dark/light switching and readable light-mode UI
+- **Frontend Product Design Handoff** (`docs/feature-specs/14c-product-design.md`)
+  - Added a product design handoff derived from `14-react-frontend.md` and `14b-frontend-ux-blueprint.md`
+  - Captured product intent, app shell, theme system, page-by-page layouts, component behavior, shared states, responsive rules, and safety/trust constraints
+  - Kept the design aligned to the existing dense operational dashboard direction with dark/default and light theme support
+- **React Frontend Product UI** (`frontend/`)
+  - Added a Vite React 18 + TypeScript frontend scaffold with Tailwind CSS, React Router, axios, react-dropzone, and Lucide React
+  - Added semantic dark/light theme tokens with `hunter_theme` persistence and `data-theme` switching
+  - Added API client helpers for auth, resume, preferences, portals, jobs, applications, and company accounts
+  - Implemented public Home and Auth screens plus authenticated Onboarding, Dashboard, Jobs, Tracker, Portals, and Settings routes
+  - Added a shared app shell with fixed sidebar, top search/sync/queue/profile bar, and theme toggle
+  - Added operational job cards, score badges, approval/apply safety state handling, resume tailor modal, tracker Kanban, application detail drawer, portal connection tiles, settings sections, and explicit empty/error/state surfaces
+  - Added mock data and local state transitions so approve, skip, queue, tracker status updates, theme switching, upload parsing, modal, and drawer interactions can be reviewed before live backend wiring
+  - Added `frontend/scripts/verify_frontend.py` for Playwright route/screenshot verification
+  - Verified `npm run build` passes and Playwright route checks pass for Home, Auth, Onboarding, Dashboard, Jobs, Tracker, Portals, Settings, light dashboard, and mobile Jobs
+- **Premium SaaS Prototype Refresh** (`frontend/`)
+  - Pivoted the visual direction from a heavy trading-terminal/AI-command style to a cleaner premium SaaS console
+  - Made light mode the first-run default while preserving dark mode
+  - Updated theme tokens, page surfaces, sidebar, top bar, brand mark, status pills, metric cards, job cards, home hero, dashboard summary, jobs review, and tracker styling
+  - Preserved existing prototype functionality: auth demo flow, onboarding upload parse state, approve/skip/apply queue behavior, tailor modal, tracker drawer/status update, filters, and theme switching
+  - Verified `npm run build` passes and Playwright route/screenshot checks pass after the refresh
+- **Frontend Navbar Fix** (`frontend/src/components/AppShell.tsx`, `frontend/scripts/verify_nav.py`)
+  - Wired the mobile hamburger to a real navigation drawer with Dashboard, Jobs, Tracker, Portals, and Settings links
+  - Made top-bar Queue navigate to Tracker, Sync show syncing/synced feedback, Notifications open actionable items, Profile open Onboarding/Settings/Sign out actions, and the Hunter mark navigate to Dashboard
+  - Added `frontend/scripts/verify_nav.py` to verify desktop nav links, top-bar actions, profile menu, notifications, queue navigation, sync feedback, and mobile drawer navigation
+  - Verified `npm run build`, `python frontend/scripts/verify_nav.py`, and `python frontend/scripts/verify_frontend.py` pass
+- **Frontend Layout Polish** (`frontend/src/components/AppShell.tsx`, `frontend/src/pages/Onboarding.tsx`)
+  - Moved profile and notification dropdowns below the top bar so they no longer cover the dashboard hero/status panel
+  - Updated Onboarding sidebar to show full Hunter branding, a Dashboard return action, and a setup checklist summary instead of a sparse icon-only rail
+  - Captured visual checks for the fixed profile menu and onboarding layout
+- **Functional Prototype Upgrade** (`frontend/`)
+  - Added Onboarding to the shared authenticated app shell navigation so app pages use one consistent navbar/sidebar
+  - Reworked Onboarding from a static all-in-one prototype into a step-driven setup flow for resume upload, preferences, portal selection, and review
+  - Added usable portal controls for Naukri, Foundit, Internshala, LinkedIn, and company portals including connect/update, browser-session confirmation, disconnect, and saved-company account states
+  - Added editable Settings controls for job preferences, safe apply window/limits, AI provider status, resume version, and account status
+  - Verified `npm run build` passes after the functional prototype upgrade
+- **Navbar Menu Fix** (`frontend/src/components/AppShell.tsx`)
+  - Changed profile and notification menus from absolute overlays to in-flow sticky-header panels so they no longer cover page header cards
+  - Replaced the in-flow panels with compact anchored popovers after visual review, removing the large empty header band while keeping outside-click close behavior
+  - Verified `npm run build` passes after the navbar menu fix
+- **Air Workbench Frontend Design Plan** (`docs/feature-specs/14b-frontend-ux-blueprint.md`, `docs/context/ui-context.md`)
+  - Updated the frontend UX blueprint from the previous sidebar/Kanban/dense-dashboard direction to the approved Air Workbench design
+  - Locked the final direction as a light-only professional SaaS interface with horizontal top navigation, no desktop sidebar, and no icon rail
+  - Specified the four approved screens: Dashboard as a next-best-action summary, Jobs as a split review workbench, Tracker as stage tabs plus application rows/detail panel, and Portals/Settings as row/form-based management tabs
+  - Rewrote `ui-context.md` with Air Workbench tokens, layout patterns, and component guidance for AppShell, JobRow, Selected Match, PortalRow, and Application Tracker Row
+- **Air Workbench Frontend Implementation** (`frontend/`)
+  - Updated Air Workbench light tokens in `frontend/src/styles.css` and forced first-run theme state to light in `frontend/src/main.tsx`
+  - Replaced the authenticated app shell with a horizontal top navigation and command bar; removed desktop sidebar/icon rail and authenticated theme toggle exposure
+  - Reworked Dashboard into a next-best-action summary with compact metrics, setup status, SafeApplyManager rail, Pipeline preview, and Portal health preview
+  - Reworked Jobs into the approved split workbench: filter row, Review queue rows, Selected match detail panel, AI fit bars, matched/missing skills, SafeApplyManager note, and Tailor/Approve/Skip/Queue actions
+  - Reworked Tracker from a Kanban wall to stage tabs, filtered application rows, warning summary, and an in-page Application details panel with status/notes update controls
+  - Reworked Portals into row-based portal status management plus company account form/list, hidden secret messaging, and management tabs
+  - Reworked Settings into management tabs for Preferences, Safe Apply, Resume, AI Provider, and Account
+  - Removed public Home/Auth theme toggles so the current visual target stays light-only
+  - Verified `npm run build` passes after the implementation
+- **Air Workbench Visual QA Pass** (`frontend/`)
+  - Captured Playwright screenshots for Dashboard, Jobs, Tracker, Portals, Settings, and mobile Jobs against the running local app
+  - Compared the implemented pages to the approved Air Workbench mockups and confirmed the main structure matches: top navigation, Dashboard next-best-action focus, Jobs split workbench, Tracker stage tabs/list/detail panel, and Portals row/form management
+  - Added additional realistic mock jobs and applications so Jobs and Tracker match the intended visual density instead of appearing emptier than the design images
+  - Re-ran screenshot capture and verified `npm run build` passes after the QA polish
+- **Frontend Copy Simplification** (`frontend/`)
+  - Replaced user-facing internal/system wording such as `SafeApplyManager`, `Queue`, and "review gate" with clearer labels: Apply safety, Apply checks, Ready, Apply now, and safety check before apply
+  - Updated Dashboard, Jobs, Home, Onboarding, Portals, Settings, AppShell, and mock application text so users understand that Hunter applies immediately after a quick check when allowed
+  - Preserved backend/internal terminology in implementation docs where `SafeApplyManager` is the actual class name
+  - Re-captured screenshots and verified `npm run build` passes after the wording pass
+- **MVP Live Flow + Apply Modes Merge** (`docs/feature-specs/01-database-schema.md`, `docs/feature-specs/11-safe-apply-manager.md`, `docs/feature-specs/12-scheduler.md`, `docs/feature-specs/13-api-routes.md`, `docs/feature-specs/14-react-frontend.md`, `docs/feature-specs/14b-frontend-ux-blueprint.md`, `docs/context/project-overview.md`, `docs/context/architecture.md`, `docs/context/progress-tracker.md`)
+  - Merged the next-phase implementation guidance into the existing feature specs for live frontend/backend wiring, job snapshot source-of-truth behavior, manual Apply now, auto-apply, resume tailoring approval, and safety/status/admin fixes
+  - Updated the product overview to clarify that Hunter stores job snapshots for review/history/dedupe while applying through the original source portal
+  - Updated architecture guidance so SafeApplyManager is strict for auto-apply but lightweight for user-reviewed manual apply
+  - Promoted frontend live API wiring, status alignment, resume artifact usage, and apply-mode split as the next implementation priority
+  - Removed the temporary standalone phase 17 doc after merging its content into the existing source-of-truth specs
+- **MVP Live Flow Backend Contracts - Step 1** (`backend/migrations/001_mvp_live_flow_apply_modes.sql`, `backend/api/routes/preferences.py`, `backend/api/routes/jobs.py`, `backend/api/routes/applications.py`, `backend/main.py`, `backend/portals/base.py`, `backend/test_safe_apply_manager.py`, `docs/feature-specs/13-api-routes.md`, `docs/context/progress-tracker.md`)
+  - Added a Supabase migration for admin profiles, apply-mode preferences, auto-apply settings, job source status, tailored resume approval metadata, and application audit fields
+  - Expanded preferences API to accept `apply_mode`, auto-apply limits, score threshold, allowed portals, safe window, and tailored-resume approval settings
+  - Split Manual Apply now from auto-apply: `/api/jobs/{id}/apply` now runs immediate pre-apply checks, resolves uploaded/approved resume artifacts, applies through the portal, logs the attempt, and updates tracker-visible status without random SafeApplyManager delay
+  - Added tailored resume approval persistence via `/api/jobs/{id}/tailor/approve`
+  - Extended application statuses with `blocked`, `failed`, and `needs_review`, and expanded application logging with mode, pre-check result, portal response, resume version, blocked reason, and failed reason
+  - Protected `/api/admin/trigger-fetch` behind JWT plus `profiles.is_admin`
+  - Updated SafeApplyManager auto-apply default window to 9:00 AM-8:00 PM IST and ensured blocked auto-apply attempts are logged
+  - Verified `python -m compileall backend\api backend\portals\base.py backend\main.py` and `python test_safe_apply_manager.py` pass
+- **MVP Live Frontend Wiring - Step 2** (`frontend/src/App.tsx`, `frontend/src/api/client.ts`, `frontend/src/api/mappers.ts`, `frontend/src/pages/Auth.tsx`, `frontend/src/pages/Onboarding.tsx`, `frontend/src/pages/Jobs.tsx`, `frontend/src/pages/Dashboard.tsx`, `frontend/src/pages/Tracker.tsx`, `frontend/src/pages/Portals.tsx`, `frontend/src/pages/Settings.tsx`, `frontend/src/components/TailorModal.tsx`, `frontend/src/types.ts`, `docs/context/progress-tracker.md`)
+  - Replaced runtime authenticated app state seeded from `mockData` with live `/api/jobs/matches` and `/api/applications` loading
+  - Replaced Auth demo-token behavior with real `/api/auth/login` and `/api/auth/register` calls
+  - Wired approve, skip, manual Apply now, tracker status update, resume upload, preferences save/load, portal token save/status, LinkedIn setup confirmation, company account save/list/delete, tailoring generation, and tailoring approval to backend APIs
+  - Added frontend mappers for Supabase nested match/application rows and aligned frontend statuses with backend `blocked`, `failed`, and `needs_review`
+  - Preserved mock data only as isolated visual-test data; it is no longer imported by `App.tsx`
+  - Verified `npm run build` passes
+- **Live Verification Helpers** (`backend/scripts/live_mvp_api_check.py`, `backend/scripts/seed_live_match.py`, `docs/context/progress-tracker.md`)
+  - Added a live API smoke-check script for a running backend: auth login, preferences, optional resume upload, portal status, job matches, and applications
+  - Added a safe seed script that creates one clearly marked `greenhouse:hunter-seed-frontend-engineer-001` job snapshot and pending match for a test user
+  - Seed script does not submit any application; it only creates DB rows for exercising the live Jobs page before the scheduler has produced real matches
+- **Live MVP API Smoke Check** (`backend/scripts/live_mvp_api_check.py`)
+  - Verified running FastAPI backend at `http://127.0.0.1:8000`
+  - Confirmed `/health`, real Supabase login/JWT, preferences save/get, resume upload with AI parse, parsed resume get, portal status, job matches, and applications endpoints all respond successfully
+  - Current live DB returned `portals=0`, `company_accounts=0`, `matches=0`, and `applications=0`, which is expected until portal connections, seeded matches, scheduler fetch, or apply attempts exist
+- **Seeded Match Frontend Verification** (`frontend/`)
+  - Confirmed the React Dashboard renders the seeded Supabase-backed `Frontend Engineer - Hunter Seed` match with score, matched skills, missing skills, and job snapshot details
+  - This verifies authenticated frontend state is loading from `/api/jobs/matches` instead of runtime `mockData`
+- **Approved Match Visibility Fix** (`backend/api/routes/jobs.py`)
+  - Fixed `/api/jobs/matches` so active review statuses include `pending`, `approved`, `blocked`, `needs_review`, and `failed`
+  - This keeps a user-approved match visible for the next manual Apply now step instead of disappearing after the Approve action
+  - Verified `python -m compileall backend\api\routes\jobs.py` passes
+  - User confirmed the approved seeded match is visible again in the Dashboard with the Apply now action
+- **Tailored Resume Artifact Flow Documentation** (`docs/context/project-overview.md`, `docs/context/architecture.md`, `docs/context/code-standards.md`, `docs/context/ui-context.md`, `docs/feature-specs/01-database-schema.md`, `docs/feature-specs/10-ai-layer.md`, `docs/feature-specs/13-api-routes.md`, `docs/feature-specs/14-react-frontend.md`, `docs/feature-specs/14b-frontend-ux-blueprint.md`, `docs/feature-specs/14c-product-design.md`)
+  - Documented Tailor as a per-job draft artifact flow: generate draft, validate no fabricated claims, store DOCX metadata in `tailored_resumes`, show review UI, approve a real draft id, then use that approved artifact during apply
+  - Clarified that the base uploaded resume is never overwritten and empty tailored-resume approvals are invalid
+  - Added the `tailored_resumes` schema, RLS policy, storage path convention, API response/request contracts, frontend API helper contract, and modal design requirements
+
+## In Progress
+
+- **Tailored resume artifact implementation / real match generation** is the active next implementation priority. The user ran `backend/migrations/001_mvp_live_flow_apply_modes.sql` successfully in Supabase SQL Editor, the React app uses backend APIs for authenticated state, the live MVP API smoke check passed, and the approved seeded match remains visible with Apply now. The next backend/frontend change should implement the documented `tailored_resumes` draft artifact flow before relying on tailored resumes for apply.
+- Phase 1 remaining gate: real Easy Apply test is still commented in `backend/test_naukri.py` and should only be run with explicit approval on a real job through SafeApplyManager.
+- Foundit real apply remains commented until explicit approval on a real target job through SafeApplyManager.
+- Internshala real apply remains commented until the persistent browser profile has been logged in manually and explicit approval is given for a real target job through SafeApplyManager.
+- LinkedIn browser session setup has been completed by the user; live `python test_linkedin.py` search verification is still pending. Real Easy Apply remains commented until explicit approval on a real target job through SafeApplyManager.
+- Workday live `python test_workday.py` from the user's activated shell completed without crashing, but Wipro, Capgemini, and Adobe all returned 0 jobs. Direct Workday search is not live-verified yet; inspect a real Workday tenant URL/API or DOM before relying on Workday search. Real Workday apply remains commented until a real target job is selected and explicit approval is given through SafeApplyManager.
+- Taleo is parked as future/fallback ATS support. Live `python test_taleo.py` completed without crashing, but HCL returned `net::ERR_NAME_NOT_RESOLVED` for `https://hcl.taleo.net/careersection/hcl_professional/jobsearch.ftl`; the spec URL is stale/not resolvable. Do not treat Taleo as a current blocker.
+- Greenhouse real apply remains commented/deferred until AI-generated cover letter/question answering is wired and explicit approval is given through SafeApplyManager.
+- Company portal live login/apply tests are deferred until real user-created company accounts are available and explicit approval is given through SafeApplyManager.
+- AI layer live API verification is pending a valid provider key/model. Current run skipped because `ANTHROPIC_API_KEY` is missing for `AI_PROVIDER=anthropic`; OpenRouter verification is available via `AI_PROVIDER=openrouter`, `AI_MODEL=<openrouter-model-id>`, and `OPENROUTER_API_KEY`.
+- Scheduler live full-fetch verification is pending at least one stored `portal_tokens` row or active company account, user preferences, latest parsed resume, and a valid AI provider key/model.
+- Tailor endpoint live verification is still pending a seeded or real job match plus valid AI provider key/model.
+
+## Next Up
+
+1. **Tailored resume artifact implementation**: add the `tailored_resumes` migration/table, generate a DOCX draft with `python-docx`, upload it to Supabase Storage, return draft metadata from `/api/jobs/{id}/tailor`, and require `tailored_resume_id` in `/api/jobs/{id}/tailor/approve`.
+2. **Tailor endpoint live verification**: run tailoring against the seeded or real job match and confirm the modal shows AI suggestions, validation, generated draft version, and approve/download actions.
+3. **Apply now failure-log verification on seed**: optional only; click Apply now on the dummy seed only if intentionally testing tracker-visible blocked/failed logging, because its apply link is not a real job.
+4. **Real match generation**: connect at least one portal token/account, save preferences, upload a resume, then run the scheduler/admin fetch path so `/api/jobs/matches` contains portal-sourced rows.
+5. **Auto-apply runner**: use saved settings for daily limit, min score, allowed portals, safe window, and tailored-resume requirement; never auto-apply below the configured score threshold.
+6. **AI layer live verification**: replace invalid `ANTHROPIC_API_KEY` or configure OpenRouter (`AI_PROVIDER=openrouter`, `AI_MODEL=<model-id>`, `OPENROUTER_API_KEY`), then rerun `python test_ai_layer.py`.
+7. **Scheduler live verification**: after portal tokens/preferences/resume exist, run `RUN_SCHEDULER_FULL=1 python test_scheduler.py`.
+8. **Deferred portal real-apply checks**: run Naukri, Foundit, Internshala, LinkedIn, Workday, Greenhouse, and company portal real applies only after live wiring and apply-mode behavior are verified, with explicit user approval.
+9. **Future fallback ATS support**: revisit Taleo only when a real, working `*.taleo.net` external apply link appears.
+10. **Deploy**: after end-to-end MVP verification, prepare AWS EC2 t2.micro + Elastic IP deployment.
+
+## Open Questions
+
+- Confirm which AI provider/model to use for production: Anthropic Claude Sonnet 4 directly, or OpenRouter with a selected model id.
+- Which Supabase region to use for lowest latency from India?
+- Twilio WhatsApp sandbox vs production: what phone number to register?
+- Resend domain for email: does the user have a domain for `from:` email?
+- Should the daily fetch run at 8am IST for all users simultaneously or staggered per user?
+
+## Architecture Decisions
+
+- **Reverse-engineered API over scraping for Naukri and Foundit**: Their internal JSON APIs are stable and return clean data. Scraping HTML would break with any CSS class name change.
+- **Persistent Chrome profiles over token injection for LinkedIn**: LinkedIn's Easy Apply is a browser modal with no public API. Persistent profile avoids re-authentication and is less detectable than injecting tokens.
+- **Fernet (AES-256) for company portal passwords**: Standard Python `cryptography` library, symmetric encryption, key stored only in `.env`. Tradeoff: if key is lost, all stored passwords are unrecoverable; user would need to re-enter them.
+- **APScheduler over Celery for MVP**: No Redis infrastructure needed. Single user for now. Will replace with Celery + Redis when scaling to multiple concurrent users (Month 2).
+- **pdfplumber as primary PDF parser**: Better layout preservation for resume column structures than PyMuPDF. MIT license; no AGPL concerns for SaaS. pypdf as fallback for PDFs pdfplumber fails on.
+- **Elastic IP required**: Naukri session tokens are IP-bound. Elastic IP ensures the server IP never changes between requests.
+- **Nodriver over undetected-chromedriver**: Same author, newer architecture. Communicates via raw DevTools Protocol without injecting WebDriver markers. Falls back to Camoufox (Firefox, C++ level fingerprint spoofing) only if Nodriver fails.
+- **Shared `Job` dataclass in `portals/naukri/jobs.py`**: Avoids duplicating the data structure across portals. Accepted coupling; changing this dataclass requires updating all portal parsers.
+- **Mode-aware SafeApplyManager**: Every apply must run pre-apply checks and log the result. Manual Apply now should submit immediately after checks pass. Auto-apply must use SafeApplyManager throttling for safe window, daily limits, score threshold, and human-like delay between successful applies.
+- **APScheduler for daily fetch**: FastAPI starts one `AsyncIOScheduler` on startup and schedules `daily_job_fetch` at 8:00am IST. Manual trigger exists for admin/testing, but full fetch should only be run when DB prerequisites and AI key/model are ready.
+- **Thin route handlers**: API routes validate input, call existing portal/AI/safety modules, persist through Supabase, and return JSON. Portal tokens and company passwords are not returned in API responses.
+
+## Session Notes
+
+- Implementation plan with full code is in `docs/job-automation-implementation new.md`; reference it for exact endpoint URLs, request structures, and code for each phase.
+- MVP live flow and apply-mode guidance has been merged into the existing feature specs. Use `01-database-schema.md`, `11-safe-apply-manager.md`, `12-scheduler.md`, `13-api-routes.md`, `14-react-frontend.md`, and `14b-frontend-ux-blueprint.md` as the next-phase source of truth before returning to deferred portal real-apply checks.
+- Job snapshots are intentional: Hunter stores job details for review, scoring, dedupe, and tracker history, while the source portal remains the final source of truth for availability and submission.
+- Apply behavior now has two intended modes: Manual Apply now submits immediately after pre-apply checks pass; auto-apply is user-enabled and throttled by SafeApplyManager.
+- Tailored resume behavior now has a documented artifact lifecycle inspired by the reviewed `MadsLorentzen/ai-job-search` workflow pattern: draft, validate, user-review, approve, then apply with the exact approved version. Hunter will implement this with `.docx` artifacts and Supabase Storage for MVP rather than a LaTeX/PDF compile loop.
+- Frontend theme decision changed on June 3, 2026: dark remains the default first-run theme, but the React app must support a persisted light theme using `hunter_theme` in localStorage and `data-theme` on the document root.
+- Product design handoff lives at `docs/feature-specs/14c-product-design.md`; use it with `14-react-frontend.md` and `14b-frontend-ux-blueprint.md` when implementing the frontend.
+- Core backend entrypoint must stay at `backend/main.py` so `cd backend && uvicorn main:app --reload --port 8000` works as documented.
+- `backend/.env` is required for running core tests because `core.config` validates Supabase and encryption variables at import time. AI provider keys are validated when model calls are attempted.
+- Do not use proxy rotation; Naukri sessions are IP-bound to the Elastic IP.
+- The nkparam header for Naukri job search is the hardest part of Phase 1; use the Playwright interception fallback (`nkparam.py`) if native generation fails.
+- If Naukri login returns HTTP 400, first confirm `NAUKRI_USERNAME`/`NAUKRI_PASSWORD` are loaded, then capture the live login request in DevTools to verify the current URL, payload shape, and required headers.
+- Run `cd backend && python -m portals.naukri.capture_login_request`, log in manually, and use the redacted request output to update `portals/naukri/auth.py`.
+- NopeRi reference checked on GitHub: README marks pure API `nkparam` generator and `/jobapi/v3/search` as working as of May 2026; constants confirm the same login URL but different request headers than the original spec snippet.
+- Foundit spec `POST /middleware/login` is stale as of June 2, 2026; current login endpoint discovered from Foundit Next.js bundle is `/seeker-profile/api/login`.
+- Foundit spec `GET /middleware/jobsearch/v2/search` is stale as of June 2, 2026; current public search endpoint is `/raven/api/public/search/v2/jobs` with `keyword`, `location`, `experienceRanges` formatted as `min~max`, numeric `sort`, and the live response shape parsed in `backend/portals/foundit/jobs.py`.
+- Internshala spec `POST /login/submit_login` is stale as of June 2, 2026; current login form posts to `/login/verify_ajax/user/dashboard` with `csrf_test_name`, but direct requests are rejected by reCAPTCHA. Use persistent Playwright login for apply flows.
+- Internshala spec search endpoints return HTML as of June 2, 2026. `backend/portals/internshala/jobs.py` keeps the spec endpoints and falls back to parsing `.individual_internship` cards when JSON is not returned.
+- LinkedIn is browser-only. Search uses a persistent Playwright profile and intercepts Voyager job responses during normal Easy Apply-filtered job search navigation.
+- LinkedIn apply automation imports `ai.qa_answerer.answer_question` when available; until the AI layer exists, it falls back to `user_profile` values so the module remains importable.
+- Workday search is headless browser-based and intercepts `myworkdayjobs.com` API responses. Company URLs and response shapes may vary, so 0-job results should be treated as a selector/API-contract signal rather than a core app failure.
+- Workday apply automation imports `ai.qa_answerer.answer_question` when available; until the AI layer exists, it falls back to `user_profile` values so the module remains importable.
+- Future Workday fix: when external apply routing reaches Workday links, inspect the exact `*.myworkdayjobs.com` job/search page in DevTools and update `backend/portals/workday/jobs.py` to parse the current API response or DOM cards. Current direct search is a placeholder/generic handler and returned 0 jobs for Wipro, Capgemini, and Adobe during live testing.
+- Taleo is similar to Workday in product purpose: it handles external company ATS links, not a general job board. It is lower priority and mainly useful for HCL/Oracle-style Taleo career portals.
+- Taleo's key implementation risk is iframe context. Always interact through `_find_taleo_frame(page) or page`, and re-fetch the frame after every navigation because Taleo iframe references go stale.
+- Taleo apply automation imports `ai.qa_answerer.answer_question` when available; until the AI layer exists, it falls back to `user_profile` values so the module remains importable.
+- Future Taleo fix: HCL's spec URL `hcl.taleo.net` no longer resolves. Current HCL careers search appears to have moved away from that Taleo tenant, so keep Taleo aside as a generic fallback handler for valid `*.taleo.net` external apply links. Revisit only after higher-value portals, SafeApplyManager, and external apply routing are in place.
+- Greenhouse is a high-priority external ATS/search source, unlike Taleo. It needs no user connection or token and should run automatically for every user in daily fetch once the scheduler exists.
+- Greenhouse live slug reality as of June 2, 2026: from the spec registry, `phonepe`, `groww`, and `postman` returned live jobs; many older slugs such as `razorpay`, `cred`, `swiggy`, and `meesho` returned 404 and may need rediscovery before production use.
+- Greenhouse board URLs may use either `boards.greenhouse.io` or `job-boards.greenhouse.io`; the parser/test accepts both.
+- Company portal password handling is security-critical: encrypt immediately in `api/routes/company_accounts.py`, never return `password` or `password_encrypted`, decrypt only inside `portals/custom/account_login.py` immediately before `page.fill()`, then `del password`.
+- Company account delete removes both the Supabase row and the matching Chrome profile directory under `./chrome_profiles/companies/`; profile deletion is path-checked to avoid deleting outside that root.
+- Company portal live login depends on fragile selectors and user-created accounts. TCS/Infosys/Cognizant/Wipro/HCL selectors are registry-driven and should be updated from DevTools if login/session checks fail.
+- AI modules use `claude-sonnet-4-20250514` by default and receive plain data only; they do not touch portal clients or database state.
+- AI modules now call `backend/ai/llm_client.py`; default provider is Anthropic, but OpenRouter can be enabled with `AI_PROVIDER=openrouter`.
+- OpenRouter mode uses `https://openrouter.ai/api/v1/chat/completions` and the model id in `AI_MODEL`, so model experiments do not require changes to parser/scorer/tailor/Q&A code.
+- AI Q&A answerer avoids model calls for common fields such as notice period, CTC, phone, email, experience, name, and location to reduce cost during form filling.
+- Resume tailoring must never fabricate skills or experience. Keep validation in downstream callers/tests when using `reordered_skills`.
+- SafeApplyManager uses IST explicitly via `ZoneInfo("Asia/Kolkata")`; never use server local time for apply windows. Current auto-apply safe window is 9:00 AM to 8:00 PM IST.
+- SafeApplyManager fails open on daily-count DB query errors by returning 0, but still logs the exception. This is MVP behavior from the spec.
+- Real apply flows must log both success and failure results to `applications`; this audit trail matters for debugging and user trust.
+- First controlled Naukri real apply succeeded on June 2, 2026. Naukri returned "You have successfully applied to this job" for portal job id `020626919850`; initial DB logging failed because `applications.job_id` expects internal `jobs.id` UUID, not the portal job id. SafeApplyManager now upserts/finds the `jobs` row first and logs using the UUID.
+- Scheduler safe test on June 2, 2026 returned 0 active users because no connected portal tokens or active company accounts are currently stored in DB. This is expected until portal connection/API routes persist tokens.
+- Full scheduler run can launch browser automation and AI scoring. Use `RUN_SCHEDULER_FULL=1 python test_scheduler.py` only after confirming stored portal tokens, preferences, parsed resume, and AI provider key/model are ready.
+- API routes are mounted as of June 2, 2026. `python-multipart` is required for `/api/resume/upload`; it is now pinned in requirements and installed in the local `.venv`.
+- Job apply API uses FastAPI `BackgroundTasks` and `_run_manual_apply()`: manual Apply now runs pre-apply checks, resolves uploaded/approved resume artifacts, submits immediately when clear, logs the application audit row, and updates tracker-visible status. Auto-apply should continue through SafeApplyManager throttling.
+- Live MVP smoke check command: `cd backend && python scripts/live_mvp_api_check.py` after setting `HUNTER_TEST_EMAIL`, `HUNTER_TEST_PASSWORD`, and optionally `HUNTER_TEST_RESUME`.
+- Live match seed command: `cd backend && python scripts/seed_live_match.py` after setting `HUNTER_TEST_EMAIL` or `HUNTER_TEST_USER_ID`; cleanup uses `HUNTER_SEED_CLEANUP=1 python scripts/seed_live_match.py`.
+- All Chrome profiles must be stored on the same EC2 instance as the backend; they cannot be replicated or moved.

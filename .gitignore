@@ -51,6 +51,10 @@ node_modules/
 dist/
 build/
 .next/
+*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts
+frontend/screenshots/
 
 # OS / editor noise
 .DS_Store
@@ -60,4 +64,3 @@ Thumbs.db
 
 
 # docs
-docs/
