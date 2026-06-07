@@ -23,6 +23,14 @@ The durable Naukri credential login itself IS production-compatible (browserless
    - The app stores third-party (Naukri / company portal) passwords for many users — real security + privacy/legal weight. Lock down the key, DB access, and backups.
    - Confirm Supabase **RLS is actually enabled** in prod (schema defines policies — verify they are on). Set production `FRONTEND_ORIGINS`/CORS and serve over HTTPS.
 
+## Naukri reliability hardening (deferred — from the NopeRi reference)
+
+These two improve Naukri reliability under real-world / multi-user conditions but aren't needed while local single-user. Do them when prepping for production or when symptoms appear.
+
+5. **TLS-fingerprint HTTP session for Naukri.** Naukri fingerprints TLS; plain `requests` is easier to flag → more CAPTCHAs / MFA / degraded headless pages (observed repeatedly in dev). Switch the Naukri session to a client that impersonates Chrome's TLS (`curl_cffi` — already listed as a fallback in `CLAUDE.md`; NopeRi uses an equivalent). Swap the session factory used by `portals/naukri/auth.py` / job client. Most valuable at scale / on server IPs.
+
+6. **OTP/MFA login support.** When Naukri challenges a login with MFA (common on flagged/cloud IPs or new devices), the credential re-login currently fails silently → "session expired". NopeRi handles it via `send_otp` / `verify_otp` (`central-login-services/v1/otp` + `v0/otp-login`). Add those calls plus a small "enter OTP" UI step in the connect/reconnect flow so MFA doesn't break the durable login.
+
 ## Good-to-know (not blockers)
 - In-memory state isn't shared across workers: the auth TTL cache (`core/auth.py`), `_manual_search_locks` (`api/routes/jobs.py`), and browser-connect sessions (`connect.py`) are per-process. Harmless beyond slightly weaker dedupe/cache; another reason the browser-connect path is dev-only.
 - `core/auth.py` still calls Supabase `get_user` on a cache miss (30s TTL cache added). Fine; optional future improvement is local JWT verification with the Supabase JWT secret.

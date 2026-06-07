@@ -87,6 +87,7 @@ export const applicationsAPI = {
   getAll: () => api.get("/api/applications"),
   updateStatus: (id: string, status: string, notes?: string) =>
     api.patch(`/api/applications/${id}`, { status, notes }),
+  syncNaukri: () => api.post("/api/applications/sync-naukri"),
 };
 
 export const companyAccountsAPI = {

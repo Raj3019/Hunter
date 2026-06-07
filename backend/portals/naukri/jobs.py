@@ -3,11 +3,15 @@ from datetime import datetime
 from typing import Any, List
 from requests.exceptions import JSONDecodeError
 
+from core.retry import with_retry
 from .nkparam import generate_nkparam
 
 RECOMMENDED_JOBS_URL = "https://www.naukri.com/jobapi/v2/search/recom-jobs"
 JOB_SEARCH_URL = "https://www.naukri.com/jobapi/v3/search"
 APPLY_JOB_URL = "https://www.naukri.com/cloudgateway-workflow/workflow-services/apply-workflow/v1/apply"
+# Read-only "My Naukri -> Applied" application history (used to auto-detect applies).
+HISTORY_URL = "https://www.naukri.com/cloudgateway-apply/whtma-services/v0/applyapi/v5/history"
+JOB_DETAILS_URL_TEMPLATE = "https://www.naukri.com/jobapi/v1/job/{job_id}"
 NAUKRI_REQUEST_TIMEOUT_SECONDS = 30
 
 
@@ -78,6 +82,7 @@ class NaukriJobClient:
         })
         return headers
 
+    @with_retry(label="naukri-recommended")
     def get_recommended_jobs(self) -> List[Job]:
         response = self.session.post(
             RECOMMENDED_JOBS_URL,
@@ -92,6 +97,7 @@ class NaukriJobClient:
         response.raise_for_status()
         return self._parse_jobs(self._json_response(response, "recommended jobs"))
 
+    @with_retry(label="naukri-search")
     async def search_jobs(
         self,
         keyword: str,
@@ -129,6 +135,71 @@ class NaukriJobClient:
             raise RuntimeError(f"Naukri search validation failed with 406. Response: {response.text[:500]}")
         response.raise_for_status()
         return self._parse_jobs(self._json_response(response, "job search"))
+
+    @with_retry(label="naukri-history")
+    def get_application_history(self, page_size: int = 50, days: int = 90, page_number: int = 1) -> dict:
+        """Read-only: the user's Naukri application history (My Naukri -> Applied).
+
+        Returns the raw JSON with an ``applyDetails`` list (jobId, jobTitle,
+        company, applyType, and a status timeline). Used to auto-detect applies
+        without performing any action on the account.
+        """
+        headers = self.auth._build_headers(auth=True)
+        headers.update({
+            "appid": "107",
+            "systemid": "107",
+            "x-requested-with": "XMLHttpRequest",
+            "referer": "https://www.naukri.com/myapply/historypage",
+            "accept": "application/json",
+        })
+        response = self.session.get(
+            HISTORY_URL,
+            params={"pageSize": page_size, "days": days, "pageNumber": page_number, "filterInfo": 2},
+            headers=headers,
+            timeout=NAUKRI_REQUEST_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        return self._json_response(response, "application history")
+
+    def get_job_details(self, job_id: str, sid: str = "") -> dict:
+        """Full job detail (richer than search). Includes the authoritative apply
+        type via ``job.responseManager`` (``companyUrl`` == external redirect)."""
+        if not job_id:
+            raise ValueError("job_id is required")
+        if not sid:
+            sid = datetime.utcnow().strftime("%Y%m%d%H%M%S") + "0000000"
+        headers = self.auth._build_headers(auth=True)
+        headers.update({
+            "appid": "121",
+            "systemid": "Naukri",
+            "clientid": "d3skt0p",
+            "nkparam": generate_nkparam("srp"),
+            "accept": "application/json",
+            "referer": "https://www.naukri.com/",
+        })
+        response = self.session.get(
+            JOB_DETAILS_URL_TEMPLATE.format(job_id=job_id),
+            params={"microsite": "y", "src": "jobsearchDesk", "sid": sid, "xp": "1", "px": "1"},
+            headers=headers,
+            timeout=NAUKRI_REQUEST_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        return self._json_response(response, "job details")
+
+    def is_external_apply(self, job_id: str) -> bool:
+        """Native-vs-company-redirect via job details (responseManager == companyUrl).
+
+        Note: ``jobapi/v1/job`` requires a cookie-bearing session, which the
+        token-only durable login does not carry, so this 401s under that auth.
+        The live apply-method classification instead reads ``companyApplyJob``
+        from the search response (see ``_classify_apply_method``). Kept for use
+        with a full browser-profile session.
+        """
+        try:
+            data = self.get_job_details(job_id)
+        except Exception:
+            return False
+        return (data.get("job") or {}).get("responseManager") == "companyUrl"
 
     def apply_job(self, job: Job) -> dict:
         if job.has_questionnaire:
@@ -237,6 +308,7 @@ class NaukriJobClient:
             "companyApplyUrl",
             "isExternalApply",
             "isCompanyApply",
+            "companyApplyJob",
             "easyApply",
             "isEasyApply",
             "hasApply",
@@ -252,6 +324,12 @@ class NaukriJobClient:
         return metadata
 
     def _classify_apply_method(self, item: dict, metadata: dict) -> str:
+        # Authoritative Naukri signal: companyApplyJob=True redirects to the
+        # company site (external); False means apply happens on Naukri (native).
+        company_apply = item.get("companyApplyJob")
+        if isinstance(company_apply, bool):
+            return "external" if company_apply else "native"
+
         combined = " ".join(
             str(value).lower()
             for value in metadata.values()

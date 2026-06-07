@@ -99,7 +99,14 @@ export function mapApplication(row: AnyRecord): Application {
     notes,
     externalApplyUrl: normalizeApplyUrl(row.external_apply_url || job.external_apply_url || portalResponse.external_apply_url || job.apply_link, text(row.portal || job.portal, "unknown")),
     externalApplyConfirmedAt: text(row.external_apply_confirmed_at),
+    arsScore: optionalNumber(portalResponse.ars_score),
+    companyRating: optionalNumber(portalResponse.company_rating),
   };
+}
+
+function optionalNumber(value: unknown): number | undefined {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
 }
 
 function normalizeJobStatus(value: unknown): JobStatus {

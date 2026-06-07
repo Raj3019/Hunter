@@ -1,4 +1,4 @@
-import { AlertTriangle, CheckCircle, Clock, ExternalLink, FileText, Search, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle, Clock, ExternalLink, FileText, RefreshCw, Search, XCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { StatusPill } from "../components/StatusPill";
@@ -8,6 +8,7 @@ import { openExternalApply, statusLabel } from "../utils/jobApply";
 interface TrackerProps {
   applications: Application[];
   onUpdate: (id: string, status: ApplicationStatus, notes?: string) => void;
+  onSyncApplied?: () => void | Promise<void>;
 }
 
 const stages: Array<{ id: ApplicationStatus; label: string }> = [
@@ -37,13 +38,24 @@ function stageTone(status: ApplicationStatus): "neutral" | "success" | "warning"
   return "neutral";
 }
 
-export function Tracker({ applications, onUpdate }: TrackerProps) {
+export function Tracker({ applications, onUpdate, onSyncApplied }: TrackerProps) {
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedStage = searchParams.get("status");
   const [selected, setSelected] = useState<Application | null>(null);
   const [portalFilter, setPortalFilter] = useState("all");
   const [activeStage, setActiveStage] = useState<ApplicationStatus>(isTrackerStage(requestedStage) ? requestedStage : "external_pending");
   const [query, setQuery] = useState("");
+  const [syncing, setSyncing] = useState(false);
+
+  const runSyncApplied = async () => {
+    if (!onSyncApplied || syncing) return;
+    setSyncing(true);
+    try {
+      await onSyncApplied();
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   const portals = useMemo(() => Array.from(new Set(applications.map((app) => app.portal))).sort(), [applications]);
   const counts = useMemo(() => stageCounts(applications), [applications]);
@@ -86,7 +98,13 @@ export function Tracker({ applications, onUpdate }: TrackerProps) {
             <h1 className="text-2xl font-semibold tracking-tight">Application tracker</h1>
             <p className="mt-1 max-w-2xl text-sm leading-6 text-[var(--text-muted)]">Confirm portal outcomes and keep application history tidy.</p>
           </div>
-          <div className="flex flex-wrap gap-2 text-sm">
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            {onSyncApplied && (
+              <button type="button" onClick={runSyncApplied} disabled={syncing} className="air-button h-9 border border-[var(--border-default)] px-3 text-[var(--text-primary)] hover:border-[var(--accent-primary)] disabled:cursor-wait disabled:opacity-70" title="Check Naukri for jobs you've applied to and update statuses">
+                <RefreshCw size={14} className={syncing ? "animate-spin" : ""} />
+                {syncing ? "Syncing" : "Sync applied status"}
+              </button>
+            )}
             <Metric label="Waiting" value={counts.external_pending || 0} tone="warning" />
             <Metric label="Applied" value={counts.applied || 0} tone="success" />
             <Metric label="Needs attention" value={attentionCount} tone={attentionCount ? "warning" : undefined} />
@@ -256,6 +274,8 @@ function ApplicationDetails({ application, onUpdate }: { application?: Applicati
           <Info label="Location" value={application.location} />
           <Info label="Latest update" value={application.latestDate} />
           <Info label="Resume" value={application.resumeVersion} />
+          {application.arsScore !== undefined && <Info label="Naukri match (ARS)" value={`${application.arsScore}`} />}
+          {application.companyRating !== undefined && <Info label="Company rating" value={`${application.companyRating}★`} />}
         </dl>
 
         <section className="mt-4 rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] p-3">

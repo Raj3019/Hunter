@@ -3,6 +3,8 @@ from dataclasses import dataclass
 from typing import Optional
 from requests import HTTPError
 
+from core.retry import with_retry
+
 NAUKRI_BASE = "https://www.naukri.com"
 LOGIN_URL = f"{NAUKRI_BASE}/central-login-services/v1/login"
 DASHBOARD_URL = (
@@ -54,15 +56,19 @@ class NaukriAuthClient:
             headers.update(extra)
         return headers
 
-    def login(self, username: str, password: str) -> NaukriSession:
-        if not username or not password:
-            raise ValueError("NAUKRI_USERNAME and NAUKRI_PASSWORD must be set before login")
-
-        response = self.session.post(
+    @with_retry(label="naukri-login")
+    def _post_login(self, username: str, password: str):
+        return self.session.post(
             LOGIN_URL,
             headers=self._build_headers(),
             json={"username": username, "password": password},
         )
+
+    def login(self, username: str, password: str) -> NaukriSession:
+        if not username or not password:
+            raise ValueError("NAUKRI_USERNAME and NAUKRI_PASSWORD must be set before login")
+
+        response = self._post_login(username, password)
         try:
             response.raise_for_status()
         except HTTPError as exc:

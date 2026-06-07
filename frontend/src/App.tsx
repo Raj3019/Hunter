@@ -46,6 +46,11 @@ type ApplyNotice = {
   actionLabel?: string;
   portalKey?: string;
   trackerStatus?: ApplicationStatus;
+  // One-tap portal-outcome confirmation (shown right after Open portal).
+  confirmable?: boolean;
+  applicationId?: string;
+  matchId?: string;
+  jobId?: string;
 };
 
 type PortalIssue = {
@@ -68,6 +73,7 @@ type AutoSyncState = "idle" | "syncing" | "paused";
 
 const AUTO_SYNC_INTERVAL_MS = 60_000;
 const PORTAL_HEALTH_AUTO_SYNC_INTERVAL_MS = 10 * 60_000;
+const NAUKRI_APPLY_SYNC_INTERVAL_MS = 5 * 60_000;
 
 export default function App() {
   const navigate = useNavigate();
@@ -91,6 +97,8 @@ export default function App() {
   const portalSyncInFlightRef = useRef(false);
   const lastPortalHealthSyncAtRef = useRef(0);
   const jobsRef = useRef<JobMatch[]>([]);
+  const lastNaukriSyncAtRef = useRef(0);
+  const naukriSyncInFlightRef = useRef(false);
 
   useEffect(() => {
     jobsRef.current = jobs;
@@ -131,6 +139,30 @@ export default function App() {
     void refreshLiveData();
   }, [location.key, refreshLiveData]);
 
+  // Read-only: ask Naukri which jobs the user has applied to and auto-advance
+  // matching portal-pending tasks. Throttled; safe to call often.
+  const syncNaukriApplied = useCallback(async (force = false): Promise<void> => {
+    if (!isAuthed()) return;
+    if (naukriSyncInFlightRef.current) return;
+    if (!force && Date.now() - lastNaukriSyncAtRef.current < NAUKRI_APPLY_SYNC_INTERVAL_MS) return;
+    naukriSyncInFlightRef.current = true;
+    try {
+      const response = await applicationsAPI.syncNaukri();
+      lastNaukriSyncAtRef.current = Date.now();
+      if ((response.data?.updated || 0) > 0) {
+        await refreshLiveData({ silent: true });
+      }
+    } catch {
+      // Best-effort and read-only (e.g. Naukri not connected) — ignore failures.
+    } finally {
+      naukriSyncInFlightRef.current = false;
+    }
+  }, [refreshLiveData]);
+
+  useEffect(() => {
+    void syncNaukriApplied(true);
+  }, [syncNaukriApplied]);
+
   const refreshPortalHealth = useCallback(async (_options: RefreshOptions = {}): Promise<PortalIssue[]> => {
     if (!isAuthed()) return [];
     if (portalSyncInFlightRef.current) return [];
@@ -169,10 +201,11 @@ export default function App() {
       if (Date.now() - lastPortalHealthSyncAtRef.current >= PORTAL_HEALTH_AUTO_SYNC_INTERVAL_MS) {
         await refreshPortalHealth({ silent: true });
       }
+      await syncNaukriApplied();
     } finally {
       setAutoSyncState("idle");
     }
-  }, [manualSearchLoading, refreshLiveData, refreshPortalHealth]);
+  }, [manualSearchLoading, refreshLiveData, refreshPortalHealth, syncNaukriApplied]);
 
   useEffect(() => {
     if (!isAuthed()) return undefined;
@@ -374,12 +407,12 @@ export default function App() {
       setPendingApply(null);
       setApplyNotice({
         tone: "warning",
-        title: "Portal pending",
-        message: `${job.title} at ${job.company} is waiting for your confirmation. Complete it on the portal, then mark the result in Tracker.`,
-        showTrackerAction: true,
-        action: "tracker",
-        actionLabel: "Open tracker",
-        trackerStatus: "external_pending",
+        title: "Did you apply?",
+        message: `${job.title} at ${job.company} opened on ${portalName(job.portal)}. When you're done there, confirm the result here.`,
+        confirmable: true,
+        applicationId: response.data?.application_id || "",
+        matchId: job.id,
+        jobId: job.jobId || job.id,
       });
       await refreshLiveData();
     } catch (caught) {
@@ -409,6 +442,44 @@ export default function App() {
     }
   };
 
+  // One-tap confirmation of a portal outcome straight from the Open-portal notice,
+  // so the user never has to navigate to Tracker to mark Applied / Could not apply.
+  const confirmPortalOutcome = async (status: ApplicationStatus) => {
+    const notice = applyNotice;
+    if (!notice?.confirmable) return;
+    const sessionStatus = status === "applied" ? "applied" : "failed";
+    if (notice.matchId) {
+      setJobs((current) => current.map((item) => (item.id === notice.matchId ? { ...item, status: sessionStatus } : item)));
+    }
+    setApplyNotice({
+      tone: status === "applied" ? "success" : "warning",
+      title: status === "applied" ? "Marked as applied" : "Marked as not applied",
+      message: status === "applied"
+        ? "Saved to your Tracker as applied."
+        : "Saved to your Tracker. You can reopen the portal and try again anytime.",
+      showTrackerAction: true,
+      action: "tracker",
+      actionLabel: "Open tracker",
+      trackerStatus: status,
+    });
+    const note = status === "applied"
+      ? "User confirmed the application was completed on the portal."
+      : "User could not complete the portal application.";
+    try {
+      let applicationId = notice.applicationId || "";
+      if (!applicationId && notice.jobId) {
+        const snapshot = await refreshLiveData();
+        applicationId = snapshot?.applications.find((app) => app.jobId === notice.jobId)?.id || "";
+      }
+      if (applicationId) {
+        await applicationsAPI.updateStatus(applicationId, status, note);
+      }
+      await refreshLiveData();
+    } catch (caught) {
+      setLiveError(apiErrorMessage(caught, "Could not save the outcome. You can confirm it from Tracker."));
+    }
+  };
+
   const shellProps = {
     metrics,
     loading: loadingLiveData,
@@ -427,6 +498,7 @@ export default function App() {
     },
     onViewTracker: (status: ApplicationStatus = "applied") => navigate(`/tracker?status=${status}`),
     onReconnectPortal: (portal: string) => navigate(`/portals?connect=${portal}`),
+    onConfirmOutcome: confirmPortalOutcome,
   };
 
   return (
@@ -469,7 +541,7 @@ export default function App() {
         element={
           <PrivateRoute>
             <LiveShell {...shellProps}>
-              <Tracker applications={applications} onUpdate={updateApplication} />
+              <Tracker applications={applications} onUpdate={updateApplication} onSyncApplied={() => syncNaukriApplied(true)} />
             </LiveShell>
           </PrivateRoute>
         }
@@ -515,6 +587,7 @@ function LiveShell({
   onRetry,
   onViewTracker,
   onReconnectPortal,
+  onConfirmOutcome,
   children,
 }: {
   metrics: { matches: number; approved: number; applied: number; blocked: number };
@@ -532,6 +605,7 @@ function LiveShell({
   onRetry: () => void | Promise<unknown>;
   onViewTracker: (status?: ApplicationStatus) => void;
   onReconnectPortal: (portal: string) => void;
+  onConfirmOutcome: (status: ApplicationStatus) => void | Promise<void>;
   children: ReactNode;
 }) {
   return (
@@ -546,7 +620,7 @@ function LiveShell({
     >
       {searchLoading && <SearchProgressBanner query={searchQuery} />}
       {portalIssues.length > 0 && <PortalReconnectBanner issue={portalIssues[0]} onReconnectPortal={onReconnectPortal} />}
-      {applyNotice && <ApplyNoticeBanner notice={applyNotice} pendingApply={pendingApply} onViewTracker={onViewTracker} onReconnectPortal={onReconnectPortal} />}
+      {applyNotice && <ApplyNoticeBanner notice={applyNotice} pendingApply={pendingApply} onViewTracker={onViewTracker} onReconnectPortal={onReconnectPortal} onConfirmOutcome={onConfirmOutcome} />}
       {!searchLoading && (searchNotice || loading || error) && (
         <div className={`mb-4 rounded-lg border px-4 py-3 text-sm ${error ? "border-[var(--state-error)] bg-white text-[var(--state-error)]" : "border-[var(--border-default)] bg-[var(--bg-surface)] text-[var(--text-muted)]"}`}>
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -598,11 +672,13 @@ function ApplyNoticeBanner({
   pendingApply,
   onViewTracker,
   onReconnectPortal,
+  onConfirmOutcome,
 }: {
   notice: ApplyNotice;
   pendingApply: PendingApply | null;
   onViewTracker: (status?: ApplicationStatus) => void;
   onReconnectPortal: (portal: string) => void;
+  onConfirmOutcome: (status: ApplicationStatus) => void | Promise<void>;
 }) {
   const toneStyle =
     notice.tone === "success"
@@ -635,7 +711,18 @@ function ApplyNoticeBanner({
             <p className="mt-1 text-[var(--text-muted)]">{notice.message}</p>
           </div>
         </div>
-        {hasAction && (
+        {notice.confirmable ? (
+          <div className="flex shrink-0 flex-wrap gap-2">
+            <button type="button" onClick={() => void onConfirmOutcome("applied")} className="air-button h-9 bg-[var(--state-success)] px-3 text-white">
+              <CheckCircle size={15} />
+              I applied
+            </button>
+            <button type="button" onClick={() => void onConfirmOutcome("failed")} className="air-button h-9 border border-[var(--border-default)] px-3 text-[var(--state-error)] hover:border-[var(--state-error)]">
+              <XCircle size={15} />
+              Could not apply
+            </button>
+          </div>
+        ) : hasAction && (
           <button type="button" onClick={runAction} className="air-button h-9 shrink-0 border border-[var(--border-default)] px-3 text-[var(--text-primary)] hover:border-[var(--accent-primary)]">
             {actionLabel}
             <ArrowRight size={14} />

@@ -215,6 +215,9 @@ export function Jobs({ jobs, onSkip, onQueue, onRefresh, onSearch, searchLoading
                     <p className="mt-1 text-sm text-[var(--text-muted)]">{selected.company} - {selected.portal}</p>
                     <div className="mt-3 flex flex-wrap gap-1.5">
                       <StatusPill label={selected.recommendationLabel || "Search result"} tone={selected.recommended ? "success" : "neutral"} />
+                      {(selected.applyMethod === "external" || selected.applyMethod === "native") && (
+                        <StatusPill label={selected.applyMethod === "external" ? "Applies on company site" : "Applies on Naukri"} tone={selected.applyMethod === "external" ? "warning" : "neutral"} />
+                      )}
                       {selected.preferenceScore !== undefined && selected.preferencesAvailable && <StatusPill label={`Preference ${selected.preferenceScore}%`} tone="accent" />}
                     </div>
                   </div>

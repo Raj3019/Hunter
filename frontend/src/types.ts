@@ -70,6 +70,8 @@ export interface Application {
   notes: string;
   externalApplyUrl?: string;
   externalApplyConfirmedAt?: string;
+  arsScore?: number;
+  companyRating?: number;
 }
 
 export interface SearchRunSummary {

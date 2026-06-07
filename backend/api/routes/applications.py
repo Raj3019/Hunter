@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 from core.auth import get_current_user_id
 from core.database import NULL_RESULT, get_db
+from services.naukri_apply_sync import reconcile_naukri_applications
 
 router = APIRouter()
 VALID_STATUSES = {
@@ -52,6 +53,13 @@ async def get_applications(user_id: str = Depends(get_current_user_id)):
         "*, jobs(title, company, location, portal, apply_link, external_apply_url)"
     ).eq("user_id", user_id).order("applied_at", desc=True).execute()
     return {"applications": result.data or []}
+
+
+@router.post("/sync-naukri")
+async def sync_naukri_applications(user_id: str = Depends(get_current_user_id)):
+    """Read-only: detect Naukri applies and advance matching pending tasks."""
+    db = get_db()
+    return await reconcile_naukri_applications(db, user_id)
 
 
 @router.patch("/{app_id}")

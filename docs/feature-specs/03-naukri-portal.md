@@ -10,6 +10,8 @@ Manual Job Search uses this portal client directly. When the user types a query 
 
 External apply rule: Naukri jobs open on the original portal in MVP. Hunter stores the raw flags in `jobs.portal_metadata`, sets `jobs.apply_method` to `external` or `unknown` when needed, and creates `external_pending` tracker tasks instead of calling the Naukri apply API.
 
+Problem→solution history for the tricky Naukri behaviours (1-hour token / durable login, honest reconnect, applied-status auto-detect, native-vs-company-site classification) is recorded in `docs/context/naukri-solutions.md`.
+
 NopeRi reference: https://github.com/Traverser25/NopeRi. Use it to compare Naukri search headers, `nkparam` behavior, and `/jobapi/v3/search` request shape when Hunter's client breaks. Keep Hunter's implementation in `backend/portals/naukri/`; do not expose tokens or browser-session data to the frontend.
 
 ## Prerequisites
@@ -103,6 +105,18 @@ Security rules (in addition to the browser-flow rules above):
 
 - Encrypt the password with `core/encryption.py` immediately on receipt; decrypt only at the moment of the login call, then `del`.
 - Never return `bearer_token` or `password_encrypted` in any API response. `/api/portals/status` strips both and exposes only a boolean `has_credentials`.
+
+### Applied-Status Auto-Detect (read-only)
+
+Naukri records every application the user makes (manual or otherwise) under "My Naukri → Applied". Hunter reads that history with the user's durable login and advances matching portal-pending tasks — so a user who applies on Naukri sees the Tracker update itself, with no manual confirmation. This is **read-only** (it never applies to anything), so it does not carry the ban/abuse risk of automating the apply endpoint.
+
+- **Endpoint:** `GET https://www.naukri.com/cloudgateway-apply/whtma-services/v0/applyapi/v5/history` with headers `appid: 107`, `systemid: 107`, `referer: https://www.naukri.com/myapply/historypage`, Bearer auth; params `pageSize`, `days`, `pageNumber`, `filterInfo=2`. Returns `applyDetails[]` with `jobId`, `jobTitle`, `company`, `applyType`, and a `status` timeline (`statusValue` e.g. "Application Sent" / "Applied" / "Application Viewed").
+- **Client:** `NaukriJobClient.get_application_history(page_size, days, page_number)`.
+- **Reconcile:** `services/naukri_apply_sync.reconcile_naukri_applications(user_id)` matches history `jobId`s against `external_pending`/`needs_review` Naukri applications (via `applications -> jobs.job_id`) and advances them (applied / viewed / interview; only ever advances; sets `external_apply_confirmed_at`).
+- **API:** `POST /api/applications/sync-naukri` (read-only, per-user).
+- **Frontend:** runs once on load + throttled inside the safe auto-sync (5 min), plus a manual "Sync applied status" button on Tracker.
+
+Apply-method classification (native vs company-site redirect) uses the **`companyApplyJob`** boolean present on every Naukri search result (`True` = applies on the company site / external, `False` = applies on Naukri / native). This is set in `NaukriJobClient._classify_apply_method` at search time — free, no extra call, no cookies — and flows through `apply_method` to the UI (which labels "Applies on company site" vs "Applies on Naukri"). This replaced an earlier per-job job-details attempt: `jobapi/v1/job/{job_id}` exposes the authoritative `job.responseManager == "companyUrl"`, but it requires a cookie-bearing session that the token-only durable login does not carry (it 401s), so `get_job_details`/`is_external_apply` are kept only as dormant helpers for a full browser-profile session. (Source reference: Traverser25/NopeRi.)
 
 ### Step 1 — DevTools Study (Do This Before Writing Code)
 
