@@ -9,14 +9,14 @@ from ai.job_scorer import score_job
 
 logger = logging.getLogger(__name__)
 
-SUPPORTED_MANUAL_PORTALS = {"naukri"}
+SUPPORTED_MANUAL_PORTALS = {"naukri", "foundit"}
 DEFAULT_QUERY = "Software Developer"
 DEFAULT_LOCATION = "Bangalore"
 DEFAULT_MIN_SCORE = 60
 MAX_MANUAL_PAGES = 3
 MAX_RESULTS_PER_PAGE = 20
 MAX_FRESHNESS_DAYS = 30
-MAX_MANUAL_SCORE_JOBS = 40
+MAX_MANUAL_SCORE_JOBS = 60
 SCORE_JOB_TIMEOUT_SECONDS = 55
 SCORE_CONCURRENCY = 3
 
@@ -36,12 +36,13 @@ async def run_manual_search(
     locations: list[str] | None = None,
     experience_years: int | None = None,
     portals: list[str] | None = None,
-    max_pages: int = 1,
+    page: int = 1,
     results_per_page: int = MAX_RESULTS_PER_PAGE,
     min_score: int = DEFAULT_MIN_SCORE,
     freshness_days: int = MAX_FRESHNESS_DAYS,
     save_as_preferences: bool = False,
 ) -> dict:
+    page = max(1, int(page or 1))
     prefs = _get_preferences(db, user_id)
     request = _normalize_request(
         prefs=prefs,
@@ -49,7 +50,7 @@ async def run_manual_search(
         locations=locations,
         experience_years=experience_years,
         portals=portals,
-        max_pages=max_pages,
+        max_pages=1,
         results_per_page=results_per_page,
         min_score=min_score,
         freshness_days=freshness_days,
@@ -72,11 +73,13 @@ async def run_manual_search(
             locations=request["locations"],
             experience_years=request["experience_years"],
             portals=request["portals"],
-            max_pages=request["max_pages"],
+            page=page,
             results_per_page=request["results_per_page"],
             freshness_days=request["freshness_days"],
             warnings=warnings,
         )
+        # If a portal returned a full page worth, there are likely more pages.
+        has_more = len(fetched_jobs) >= request["results_per_page"]
         preference_jobs = _filter_jobs_by_preferences(fetched_jobs, request, warnings)
         unique_jobs = _unique_jobs(preference_jobs)
         existing_keys = _get_existing_applied_job_ids(db, user_id)
@@ -105,6 +108,11 @@ async def run_manual_search(
             scoring_context=_scoring_context(request, resume, fast=True),
         )
         recommended_count = _count_recommended(matches, request["min_score"])
+        portal_counts: dict[str, int] = {}
+        for match in matches:
+            portal = (match.get("jobs") or {}).get("portal") or ""
+            if portal:
+                portal_counts[portal] = portal_counts.get(portal, 0) + 1
         run = {
             "id": run_id,
             "status": "completed",
@@ -119,6 +127,9 @@ async def run_manual_search(
             "scored_count": len(jobs_to_score),
             "saved_matches_count": len(matches),
             "recommended_count": recommended_count,
+            "portal_counts": portal_counts,
+            "page": page,
+            "has_more": has_more,
             "min_score": request["min_score"],
         }
         _update_search_run(db, run_id, run, warnings=warnings)
@@ -146,7 +157,7 @@ async def search_portals(
     locations: list[str],
     experience_years: int,
     portals: list[str],
-    max_pages: int,
+    page: int,
     results_per_page: int,
     freshness_days: int,
     warnings: list[str],
@@ -161,12 +172,52 @@ async def search_portals(
                     query=query,
                     locations=locations,
                     experience_years=experience_years,
-                    max_pages=max_pages,
+                    page=page,
                     results_per_page=results_per_page,
                     freshness_days=freshness_days,
                     warnings=warnings,
                 )
             )
+        elif portal == "foundit":
+            jobs.extend(
+                await _search_foundit(
+                    query=query,
+                    locations=locations,
+                    experience_years=experience_years,
+                    page=page,
+                    results_per_page=results_per_page,
+                    warnings=warnings,
+                )
+            )
+    return jobs
+
+
+async def _search_foundit(
+    *,
+    query: str,
+    locations: list[str],
+    experience_years: int,
+    page: int,
+    results_per_page: int,
+    warnings: list[str],
+) -> list:
+    from portals.foundit.auth import FounditAuthClient
+    from portals.foundit.jobs import FounditJobClient
+
+    # Foundit's public search needs no login (unauthenticated session).
+    # Foundit pageNo is 0-indexed, so request page N maps to pageNo N-1.
+    client = FounditJobClient(FounditAuthClient())
+    foundit_page = max(0, page - 1)
+    jobs = []
+    for location in (locations or [""]):
+        try:
+            jobs.extend(await asyncio.to_thread(
+                client.search_jobs, query, location, experience_years, foundit_page, results_per_page,
+            ))
+        except Exception as exc:
+            warning = f"Foundit search failed for {query} / {location or 'any location'} page {page}: {_safe_error(exc)}"
+            warnings.append(warning)
+            logger.warning(warning)
     return jobs
 
 
@@ -518,7 +569,7 @@ def _normalize_request(
     normalized_locations = _string_list(locations) or _string_list(prefs.get("locations")) or [DEFAULT_LOCATION]
     normalized_work_type = [item.lower() for item in _string_list(prefs.get("work_type"))]
     normalized_avoid_companies = [item.lower() for item in _string_list(prefs.get("avoid_companies"))]
-    normalized_portals = [item.lower() for item in (_string_list(portals) or ["naukri"])]
+    normalized_portals = [item.lower() for item in (_string_list(portals) or ["naukri", "foundit"])]
     unsupported = [item for item in normalized_portals if item not in SUPPORTED_MANUAL_PORTALS]
     if unsupported:
         raise DiscoveryError(400, f"Manual search currently supports: {', '.join(sorted(SUPPORTED_MANUAL_PORTALS))}.")
@@ -565,7 +616,7 @@ async def _search_naukri(
     query: str,
     locations: list[str],
     experience_years: int,
-    max_pages: int,
+    page: int,
     results_per_page: int,
     freshness_days: int,
     warnings: list[str],
@@ -586,9 +637,8 @@ async def _search_naukri(
 
     jobs = []
     # Personalized recommendations are profile-based, so only fold them into a
-    # "find from profile" run (no explicit keyword) to avoid polluting a specific
-    # keyword search with unrelated recommended roles.
-    if authenticated and not query.strip():
+    # "find from profile" run (no explicit keyword) and only on the first page.
+    if authenticated and not query.strip() and page == 1:
         try:
             recommended = await asyncio.to_thread(client.get_recommended_jobs)
             jobs.extend(recommended)
@@ -596,28 +646,25 @@ async def _search_naukri(
             logger.info("Naukri recommended jobs unavailable: %s", _safe_error(exc))
 
     for location in locations:
-        for page in range(1, max_pages + 1):
-            try:
-                page_jobs = await client.search_jobs(
-                    keyword=query,
-                    location=location,
-                    experience=experience_years,
-                    page=page,
-                    results_per_page=results_per_page,
-                    freshness_days=freshness_days,
-                )
-                jobs.extend(page_jobs)
-            except Exception as exc:
-                if _exception_status_code(exc) == 401:
-                    warning = "Naukri public search returned 401. Try again later or open Naukri directly from the portal."
-                    warnings.append(warning)
-                    logger.warning(warning)
-                    break
-                warning = f"Naukri search failed for {query} / {location or 'any location'} page {page}: {_safe_error(exc)}"
+        try:
+            page_jobs = await client.search_jobs(
+                keyword=query,
+                location=location,
+                experience=experience_years,
+                page=page,
+                results_per_page=results_per_page,
+                freshness_days=freshness_days,
+            )
+            jobs.extend(page_jobs)
+        except Exception as exc:
+            if _exception_status_code(exc) == 401:
+                warning = "Naukri public search returned 401. Try again later or open Naukri directly from the portal."
                 warnings.append(warning)
                 logger.warning(warning)
-                if page == 1:
-                    break
+                continue
+            warning = f"Naukri search failed for {query} / {location or 'any location'} page {page}: {_safe_error(exc)}"
+            warnings.append(warning)
+            logger.warning(warning)
     return jobs
 
 

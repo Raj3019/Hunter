@@ -16,7 +16,15 @@ interface JobsProps {
   lastSearchSummary?: SearchRunSummary | null;
   searchResultIds?: string[] | null;
   onClearSearchScope?: () => void;
+  onLoadMore?: () => void | Promise<void>;
+  hasMore?: boolean;
+  loadingMore?: boolean;
   applyingLocked?: boolean;
+}
+
+function portalDisplayName(portal: string): string {
+  const map: Record<string, string> = { naukri: "Naukri", foundit: "Foundit", linkedin: "LinkedIn", internshala: "Internshala" };
+  return map[portal?.toLowerCase()] || (portal ? portal.charAt(0).toUpperCase() + portal.slice(1) : "the portal");
 }
 
 function scoreColor(score: number) {
@@ -32,12 +40,10 @@ function statusTone(status: JobMatch["status"]) {
   return "accent";
 }
 
-export function Jobs({ jobs, onSkip, onQueue, onRefresh, onSearch, searchLoading = false, lastSearchSummary, searchResultIds, onClearSearchScope, applyingLocked = false }: JobsProps) {
+export function Jobs({ jobs, onSkip, onQueue, onRefresh, onSearch, searchLoading = false, lastSearchSummary, searchResultIds, onClearSearchScope, onLoadMore, hasMore = false, loadingMore = false, applyingLocked = false }: JobsProps) {
   const [portal, setPortal] = useState("all");
   const [status, setStatus] = useState("all");
   const [minScore, setMinScore] = useState(0);
-  const [recommendationThreshold, setRecommendationThreshold] = useState(60);
-  const [resultView, setResultView] = useState<"recommended" | "all">("recommended");
   const [searchDraft, setSearchDraft] = useState("");
   const [locationDraft, setLocationDraft] = useState("");
   const [selectedId, setSelectedId] = useState(jobs[0]?.id || "");
@@ -53,28 +59,20 @@ export function Jobs({ jobs, onSkip, onQueue, onRefresh, onSearch, searchLoading
       .sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
   }, [jobs, searchResultIds]);
 
-  // A fresh search should show its results, not hide them behind the
-  // recommended-score threshold, so default the view to all scoped results.
-  useEffect(() => {
-    if (scopeActive) setResultView("all");
-  }, [searchResultIds, scopeActive]);
-
-  const filtered = useMemo(
+  // One list, sorted by resume-match score (best first). No recommended/all split.
+  const displayedJobs = useMemo(
     () =>
-      scopedJobs.filter((job) => {
-        const portalMatch = portal === "all" || job.portal === portal;
-        const statusMatch = status === "all" || displayJobStatus(job) === status;
-        return portalMatch && statusMatch && job.score >= minScore && job.status !== "skipped";
-      }),
+      scopedJobs
+        .filter((job) => {
+          const portalMatch = portal === "all" || job.portal === portal;
+          const statusMatch = status === "all" || displayJobStatus(job) === status;
+          return portalMatch && statusMatch && job.score >= minScore && job.status !== "skipped";
+        })
+        .sort((a, b) => b.score - a.score),
     [scopedJobs, minScore, portal, status]
   );
 
   const portals = Array.from(new Set(scopedJobs.map((job) => job.portal)));
-  const recommended = filtered.filter((job) => isRecommendedMatch(job, recommendationThreshold));
-  // "All results" excludes the recommended ones so the two tabs never overlap.
-  const otherResults = filtered.filter((job) => !isRecommendedMatch(job, recommendationThreshold));
-  const searchOnlyCount = otherResults.length;
-  const displayedJobs = resultView === "recommended" ? recommended : otherResults;
   const selected = displayedJobs.find((job) => job.id === selectedId) || displayedJobs[0];
 
   useEffect(() => {
@@ -83,10 +81,7 @@ export function Jobs({ jobs, onSkip, onQueue, onRefresh, onSearch, searchLoading
 
   const runSearch = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    await onSearch?.(searchDraft, {
-      locations: splitSearchLocations(locationDraft),
-      minScore: recommendationThreshold,
-    });
+    await onSearch?.(searchDraft, { locations: splitSearchLocations(locationDraft) });
   };
 
   return (
@@ -104,8 +99,7 @@ export function Jobs({ jobs, onSkip, onQueue, onRefresh, onSearch, searchLoading
               Last search ({scopedJobs.length}) · Show all
             </button>
             )}
-            <SummaryChip label="Recommended" value={recommended.length} tone="success" />
-            <SummaryChip label="Results" value={filtered.length} />
+            <SummaryChip label="Jobs" value={displayedJobs.length} tone="success" />
             <SummaryChip label="Portal pending" value={scopedJobs.filter((job) => job.status === "external_pending").length} tone="warning" />
           </div>
         </div>
@@ -113,14 +107,12 @@ export function Jobs({ jobs, onSkip, onQueue, onRefresh, onSearch, searchLoading
         <SearchWorkbench
           query={searchDraft}
           location={locationDraft}
-          threshold={recommendationThreshold}
           loading={searchLoading}
           summary={lastSearchSummary}
           onQueryChange={setSearchDraft}
           onLocationChange={setLocationDraft}
-          onThresholdChange={setRecommendationThreshold}
           onSubmit={runSearch}
-          onProfileSearch={() => onSearch?.("", { locations: splitSearchLocations(locationDraft), minScore: recommendationThreshold })}
+          onProfileSearch={() => onSearch?.("", { locations: splitSearchLocations(locationDraft) })}
         />
       </section>
 
@@ -129,18 +121,16 @@ export function Jobs({ jobs, onSkip, onQueue, onRefresh, onSearch, searchLoading
           <div className="flex min-w-0 flex-1 flex-col">
             <div className="border-b border-[var(--border-default)] px-4 py-3">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                <ViewTabs
-                  active={resultView}
-                  recommendedCount={recommended.length}
-                  allCount={otherResults.length}
-                  onChange={setResultView}
-                />
+                <div>
+                  <h2 className="text-sm font-semibold">{displayedJobs.length} job{displayedJobs.length === 1 ? "" : "s"}</h2>
+                  <p className="text-xs text-[var(--text-muted)]">Sorted by resume match — best fit first.</p>
+                </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <SlidersHorizontal size={16} className="text-[var(--text-muted)]" />
                   <select aria-label="Portal filter" value={portal} onChange={(event) => setPortal(event.target.value)} className="terminal-field h-9 rounded-md px-2 text-sm">
                     <option value="all">All portals</option>
                     {portals.map((item) => (
-                      <option key={item} value={item}>{item}</option>
+                      <option key={item} value={item}>{portalDisplayName(item)}</option>
                     ))}
                   </select>
                   <select aria-label="Status filter" value={status} onChange={(event) => setStatus(event.target.value)} className="terminal-field h-9 rounded-md px-2 text-sm">
@@ -149,18 +139,16 @@ export function Jobs({ jobs, onSkip, onQueue, onRefresh, onSearch, searchLoading
                       <option key={item} value={item}>{statusLabel(item)}</option>
                     ))}
                   </select>
-                  <input aria-label="Minimum score" value={minScore} onChange={(event) => setMinScore(Number(event.target.value))} type="number" min={0} max={100} className="terminal-field h-9 w-20 rounded-md px-2 text-sm" />
+                  <label className="inline-flex items-center gap-1 text-xs text-[var(--text-muted)]">
+                    Min score
+                    <input aria-label="Minimum score" value={minScore} onChange={(event) => setMinScore(Number(event.target.value))} type="number" min={0} max={100} className="terminal-field h-9 w-16 rounded-md px-2 text-sm" />
+                  </label>
                 </div>
               </div>
-              <p className="mt-2 text-xs text-[var(--text-muted)]">
-                {resultView === "recommended"
-                  ? `${recommended.length} recommended matches. ${searchOnlyCount} more in All results.`
-                  : `${otherResults.length} other results (recommended jobs are in the Recommended tab).`}
-              </p>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin">
               {displayedJobs.length === 0 ? (
-                <EmptyResults view={resultView} threshold={recommendationThreshold} />
+                <EmptyResults />
               ) : displayedJobs.map((job) => (
               <button
                 key={job.id}
@@ -183,7 +171,6 @@ export function Jobs({ jobs, onSkip, onQueue, onRefresh, onSearch, searchLoading
                 <div className="min-w-0">
                   <p className="truncate text-sm font-semibold">{job.title}</p>
                   <p className="mt-1 truncate text-xs text-[var(--text-muted)]">{job.company} - {job.location}</p>
-                  <p className="mt-1 truncate text-xs text-[var(--accent-primary)]">{job.recommendationLabel || "Search result"}</p>
                 </div>
                 <div className="flex flex-wrap items-center justify-start gap-2 md:justify-end">
                   <StatusPill label={job.portal} tone="neutral" />
@@ -197,6 +184,13 @@ export function Jobs({ jobs, onSkip, onQueue, onRefresh, onSearch, searchLoading
                 })()}
               </button>
               ))}
+              {scopeActive && hasMore && displayedJobs.length > 0 && (
+                <div className="p-3">
+                  <button type="button" onClick={() => void onLoadMore?.()} disabled={loadingMore} className="air-button h-10 w-full border border-[var(--border-default)] text-[var(--text-primary)] hover:border-[var(--accent-primary)] disabled:cursor-wait disabled:opacity-70">
+                    {loadingMore ? "Loading more…" : "Load more jobs"}
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </section>
@@ -214,11 +208,10 @@ export function Jobs({ jobs, onSkip, onQueue, onRefresh, onSearch, searchLoading
                     <h2 className="mt-2 text-xl font-semibold leading-snug">{selected.title}</h2>
                     <p className="mt-1 text-sm text-[var(--text-muted)]">{selected.company} - {selected.portal}</p>
                     <div className="mt-3 flex flex-wrap gap-1.5">
-                      <StatusPill label={selected.recommendationLabel || "Search result"} tone={selected.recommended ? "success" : "neutral"} />
+                      <StatusPill label={portalDisplayName(selected.portal)} tone="neutral" />
                       {(selected.applyMethod === "external" || selected.applyMethod === "native") && (
-                        <StatusPill label={selected.applyMethod === "external" ? "Applies on company site" : "Applies on Naukri"} tone={selected.applyMethod === "external" ? "warning" : "neutral"} />
+                        <StatusPill label={selected.applyMethod === "external" ? "Applies on company site" : `Applies on ${portalDisplayName(selected.portal)}`} tone={selected.applyMethod === "external" ? "warning" : "neutral"} />
                       )}
-                      {selected.preferenceScore !== undefined && selected.preferencesAvailable && <StatusPill label={`Preference ${selected.preferenceScore}%`} tone="accent" />}
                     </div>
                   </div>
                   <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full border text-lg font-semibold" style={{ color: scoreColor(selected.score), borderColor: scoreColor(selected.score) }}>
@@ -255,9 +248,6 @@ export function Jobs({ jobs, onSkip, onQueue, onRefresh, onSearch, searchLoading
                 </div>
 
                 <div className="mt-4 grid gap-4">
-                  {selected.preferenceMatchedTerms && selected.preferenceMatchedTerms.length > 0 && (
-                    <SkillGroup title="Preference matches" skills={selected.preferenceMatchedTerms} tone="success" />
-                  )}
                   <SkillGroup title="Matched skills" skills={selected.matchedSkills} tone="success" />
                   <SkillGroup title="Missing skills" skills={selected.missingSkills} />
                 </div>
@@ -285,23 +275,19 @@ export function Jobs({ jobs, onSkip, onQueue, onRefresh, onSearch, searchLoading
 function SearchWorkbench({
   query,
   location,
-  threshold,
   loading,
   summary,
   onQueryChange,
   onLocationChange,
-  onThresholdChange,
   onSubmit,
   onProfileSearch,
 }: {
   query: string;
   location: string;
-  threshold: number;
   loading: boolean;
   summary?: SearchRunSummary | null;
   onQueryChange: (value: string) => void;
   onLocationChange: (value: string) => void;
-  onThresholdChange: (value: number) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void | Promise<void>;
   onProfileSearch: () => void | Promise<void>;
 }) {
@@ -311,13 +297,12 @@ function SearchWorkbench({
         <p className="text-sm font-semibold">Search live jobs</p>
         {summary && (
           <div className="flex flex-wrap gap-2">
-            <SearchStat label="Fetched" value={summary.fetchedCount} />
-            <SearchStat label="Scored" value={summary.savedCount} />
-            <SearchStat label="Recommended" value={summary.recommendedCount} tone="success" />
+            <SearchStat label="Found" value={summary.fetchedCount} />
+            <SearchStat label="Scored" value={summary.savedCount} tone="success" />
           </div>
         )}
       </div>
-      <form onSubmit={onSubmit} className="grid gap-2 lg:grid-cols-[minmax(240px,1fr)_minmax(180px,0.65fr)_110px_auto_auto] lg:items-end">
+      <form onSubmit={onSubmit} className="grid gap-2 lg:grid-cols-[minmax(240px,1fr)_minmax(180px,0.65fr)_auto_auto] lg:items-end">
         <label className="text-xs font-medium uppercase tracking-wide text-[var(--text-muted)]">
           Role or keyword
           <div className="relative mt-1">
@@ -344,19 +329,6 @@ function SearchWorkbench({
               placeholder="Mumbai, Pune, Remote"
             />
           </div>
-        </label>
-
-        <label className="text-xs font-medium uppercase tracking-wide text-[var(--text-muted)]">
-          Recommend at
-          <input
-            value={threshold}
-            onChange={(event) => onThresholdChange(Number(event.target.value))}
-            disabled={loading}
-            type="number"
-            min={0}
-            max={100}
-            className="terminal-field mt-1 h-10 w-full rounded-md px-3 text-sm normal-case tracking-normal disabled:cursor-wait disabled:opacity-80"
-          />
         </label>
 
         <button type="submit" disabled={loading} className="air-button h-10 bg-[var(--accent-primary)] px-4 text-white hover:bg-[var(--accent-hover)] disabled:cursor-wait disabled:opacity-80">
@@ -401,51 +373,13 @@ function Fact({ label, value }: { label: string; value: string }) {
   );
 }
 
-function ViewTabs({
-  active,
-  recommendedCount,
-  allCount,
-  onChange,
-}: {
-  active: "recommended" | "all";
-  recommendedCount: number;
-  allCount: number;
-  onChange: (view: "recommended" | "all") => void;
-}) {
-  const items = [
-    { id: "recommended" as const, label: "Recommended", count: recommendedCount },
-    { id: "all" as const, label: "All results", count: allCount },
-  ];
-  return (
-    <div className="inline-flex rounded-md border border-[var(--border-default)] bg-[var(--bg-elevated)] p-1">
-      {items.map((item) => (
-        <button
-          key={item.id}
-          type="button"
-          onClick={() => onChange(item.id)}
-          className={`inline-flex h-8 items-center gap-2 rounded px-3 text-sm font-medium transition ${
-            active === item.id ? "bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-sm" : "text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-          }`}
-        >
-          {item.label}
-          <span className="rounded-full bg-[var(--bg-elevated)] px-2 py-0.5 text-xs">{item.count}</span>
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function EmptyResults({ view, threshold }: { view: "recommended" | "all"; threshold: number }) {
+function EmptyResults() {
   return (
     <div className="flex min-h-64 items-center justify-center p-6 text-center">
       <div>
-        <p className="text-sm font-semibold text-[var(--text-primary)]">
-          {view === "recommended" ? "No recommended jobs at this threshold" : "No jobs match the filters"}
-        </p>
+        <p className="text-sm font-semibold text-[var(--text-primary)]">No jobs match the filters</p>
         <p className="mt-2 max-w-md text-sm leading-6 text-[var(--text-muted)]">
-          {view === "recommended"
-            ? `Lower the recommendation score below ${threshold}, adjust filters, or switch to All results.`
-            : "Broaden the portal/status/score filters or run a new search."}
+          Broaden the portal / status / min-score filters, or run a new search.
         </p>
       </div>
     </div>
@@ -528,10 +462,6 @@ function JobDescriptionModal({ job, onClose }: { job: JobMatch; onClose: () => v
       </section>
     </div>
   );
-}
-
-function isRecommendedMatch(job: JobMatch, threshold: number): boolean {
-  return Boolean(job.recommended || (job.recommendationBasis !== "search" && job.score >= threshold));
 }
 
 function splitSearchLocations(value: string): string[] | undefined {

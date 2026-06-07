@@ -66,7 +66,7 @@ export const jobsAPI = {
     locations?: string[];
     experience_years?: number;
     portals?: string[];
-    max_pages?: number;
+    page?: number;
     results_per_page?: number;
     min_score?: number;
     freshness_days?: number;

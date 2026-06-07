@@ -1,5 +1,6 @@
 from typing import List
 
+from core.retry import with_retry
 from portals.naukri.jobs import Job
 
 FOUNDIT_BASE = "https://www.foundit.in"
@@ -11,16 +12,19 @@ class FounditJobClient:
     def __init__(self, auth):
         self.session = auth.session
 
+    @with_retry(label="foundit-search")
     def search_jobs(
         self, keyword: str, location: str = "",
-        experience: int = 0, page: int = 0
+        experience: int = 0, page: int = 0, results_per_page: int = 20,
     ) -> List[Job]:
+        # Foundit's current public search uses `query`/`locations` (not
+        # `keyword`/`location`); pageNo is 0-indexed. No login required.
         params = {
-            "keyword": keyword,
-            "location": location,
+            "query": keyword,
+            "locations": location,
             "experienceRanges": f"{experience}~{experience + 2}",
             "pageNo": page,
-            "pageSize": 20,
+            "pageSize": results_per_page,
             "sort": 1,
         }
         response = self.session.get(SEARCH_URL, params=params)
@@ -93,18 +97,20 @@ class FounditJobClient:
             salary_raw = item.get("salary") or item.get("salaryDetail") or item.get("salaryRange")
             skills_raw = item.get("keySkills") or item.get("skills") or item.get("skillSet") or []
             tags = self._parse_tags(skills_raw)
-            apply_link = (
-                item.get("applyLink") or
-                item.get("applyUrl") or
-                item.get("jdLink") or
-                item.get("jdUrl") or
-                item.get("redirectUrl") or
-                item.get("jobUrl") or
-                ""
-            )
+            # Always open the canonical Foundit job page (jdUrl). The raw
+            # applyUrl/redirectUrl points at the aggregated *source* listing
+            # (e.g. an often-expired LinkedIn job), so we never open it directly —
+            # the Foundit page handles Quick Apply or a fresh redirect.
+            jd_path = item.get("jdUrl") or ""
+            if jd_path.startswith("/"):
+                apply_link = FOUNDIT_BASE + jd_path
+            elif jd_path.startswith("http"):
+                apply_link = jd_path
+            else:
+                apply_link = ""
             portal_metadata = self._apply_metadata(item)
             apply_method = self._classify_apply_method(portal_metadata)
-            external_apply_url = self._external_apply_url(item) or (apply_link if apply_method != "native" else "")
+            external_apply_url = ""
 
             jobs.append(Job(
                 job_id=str(item.get("jobId") or item.get("id") or item.get("kiwiJobId") or ""),
@@ -136,14 +142,16 @@ class FounditJobClient:
             "applyType",
             "applyMode",
             "applyMethod",
-            "applyLink",
             "applyUrl",
             "redirectUrl",
             "externalApplyUrl",
             "isExternalApply",
+            "quickApplyJob",
+            "quickJob",
             "quickApply",
             "directApply",
             "easyApply",
+            "jobSource",
         }
         return {
             key: item.get(key)
@@ -152,21 +160,18 @@ class FounditJobClient:
         }
 
     def _classify_apply_method(self, metadata: dict) -> str:
-        combined = " ".join(
-            str(value).lower()
-            for value in metadata.values()
-            if isinstance(value, (str, int, bool))
-        )
-        if any(marker in combined for marker in ("external", "redirect", "company site", "company website")):
-            return "external"
-        if self._is_truthy(metadata.get("isExternalApply")):
-            return "external"
-        if (
-            self._is_truthy(metadata.get("quickApply")) or
-            self._is_truthy(metadata.get("directApply")) or
-            self._is_truthy(metadata.get("easyApply"))
-        ):
+        # Quick Apply = applies natively on Foundit; otherwise it redirects to the
+        # source/company site (external).
+        if any(self._is_truthy(metadata.get(k)) for k in (
+            "quickApplyJob", "quickJob", "quickApply", "directApply", "easyApply",
+        )):
             return "native"
+        if (
+            metadata.get("redirectUrl") or
+            metadata.get("applyUrl") or
+            self._is_truthy(metadata.get("isExternalApply"))
+        ):
+            return "external"
         return "unknown"
 
     def _external_apply_url(self, item: dict) -> str:

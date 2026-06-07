@@ -34,7 +34,7 @@ class ManualSearchIn(BaseModel):
     locations: list[str] | None = None
     experience_years: int | None = None
     portals: list[str] = Field(default_factory=lambda: ["naukri"])
-    max_pages: int = 1
+    page: int = 1
     results_per_page: int = 20
     min_score: int = 60
     freshness_days: int = 30
@@ -113,7 +113,7 @@ async def search_jobs(body: ManualSearchIn, user_id: str = Depends(get_current_u
                 locations=body.locations,
                 experience_years=body.experience_years,
                 portals=body.portals,
-                max_pages=body.max_pages,
+                page=body.page,
                 results_per_page=body.results_per_page,
                 min_score=body.min_score,
                 freshness_days=body.freshness_days,
@@ -690,7 +690,7 @@ def _manual_search_lock_key(user_id: str, body: ManualSearchIn) -> str:
     query = (body.query or "").strip().lower()
     locations = ",".join(sorted([item.strip().lower() for item in body.locations or [] if item.strip()]))
     portals = ",".join(sorted([item.strip().lower() for item in body.portals or [] if item.strip()]))
-    return f"{user_id}:{query}:{locations}:{portals}"
+    return f"{user_id}:{query}:{locations}:{portals}:p{body.page}"
 
 
 def _get_resume_artifact(db, user_id: str, match_data: dict) -> dict:

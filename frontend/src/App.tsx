@@ -87,6 +87,10 @@ export default function App() {
   const [manualSearchQuery, setManualSearchQuery] = useState("");
   const [lastSearchSummary, setLastSearchSummary] = useState<SearchRunSummary | null>(null);
   const [searchResultIds, setSearchResultIds] = useState<string[] | null>(null);
+  const [searchHasMore, setSearchHasMore] = useState(false);
+  const [searchLoadingMore, setSearchLoadingMore] = useState(false);
+  const searchPageRef = useRef(1);
+  const lastSearchRef = useRef<{ query: string; locations?: string[] }>({ query: "" });
   const [applyNotice, setApplyNotice] = useState<ApplyNotice | null>(null);
   const [pendingApply, setPendingApply] = useState<PendingApply | null>(null);
   const [portalIssues, setPortalIssues] = useState<PortalIssue[]>([]);
@@ -266,38 +270,45 @@ export default function App() {
     });
   }, [refreshLiveData]);
 
+  const fetchSearchPage = (query: string, locations: string[] | undefined, page: number) =>
+    jobsAPI.search({
+      query,
+      portals: ["naukri", "foundit"],
+      page,
+      results_per_page: 20,
+      locations,
+      min_score: 0,
+      freshness_days: 30,
+    });
+
   const runManualSearch = useCallback(
     async (query: string, options: ManualSearchOptions = {}) => {
       const trimmed = query.trim();
-      const minScore = options.minScore ?? 60;
+      const locations = options.locations?.filter(Boolean);
       setManualSearchLoading(true);
       setManualSearchQuery(trimmed);
-      setManualSearchNotice(trimmed ? `Searching Naukri for "${trimmed}"...` : "Finding Naukri jobs from your saved profile...");
+      setManualSearchNotice(trimmed ? `Searching Naukri + Foundit for "${trimmed}"...` : "Finding jobs from your saved profile...");
       setLiveError("");
+      searchPageRef.current = 1;
+      lastSearchRef.current = { query: trimmed, locations };
       try {
-        const response = await jobsAPI.search({
-          query: trimmed,
-          portals: ["naukri"],
-          max_pages: 1,
-          results_per_page: 20,
-          locations: options.locations?.filter(Boolean),
-          min_score: minScore,
-          freshness_days: 30,
-        });
+        const response = await fetchSearchPage(trimmed, locations, 1);
         const run = response.data?.run;
+        setSearchHasMore(Boolean(run?.has_more));
         if (run) {
           const queryLabel = trimmed ? `"${run.query}"` : "your saved profile";
-          const recommendedCount = Number(run.recommended_count ?? 0);
           setLastSearchSummary({
             query: String(run.query || trimmed),
             locations: Array.isArray(run.locations) ? run.locations : [],
             fetchedCount: Number(run.fetched_count || 0),
             savedCount: Number(run.saved_matches_count || 0),
-            recommendedCount,
-            minScore: Number(run.min_score || minScore),
+            recommendedCount: Number(run.recommended_count ?? 0),
+            minScore: Number(run.min_score || 0),
           });
+          const counts = (run.portal_counts || {}) as Record<string, number>;
+          const breakdown = Object.entries(counts).map(([portal, n]) => `${portalName(portal)} ${n}`).join(" · ");
           setManualSearchNotice(
-            `${run.saved_matches_count} resume-scored jobs saved from ${run.fetched_count} Naukri jobs for ${queryLabel}. ${recommendedCount} are recommended at score ${run.min_score}+.`
+            `${run.saved_matches_count} jobs found for ${queryLabel}, scored against your resume${breakdown ? ` — ${breakdown}` : ""}. Use "Load more" for additional pages.`
           );
         } else {
           setLastSearchSummary(null);
@@ -318,6 +329,43 @@ export default function App() {
     },
     []
   );
+
+  const loadMoreResults = useCallback(async () => {
+    if (searchLoadingMore || !searchHasMore) return;
+    const { query, locations } = lastSearchRef.current;
+    setSearchLoadingMore(true);
+    try {
+      const newJobs: JobMatch[] = [];
+      const seen = new Set(jobsRef.current.map((job) => job.id));
+      let backendHasMore = true;
+      let attempts = 0;
+      // Skip pages that only return duplicates so one click reliably adds jobs;
+      // stop as soon as we find new jobs or the portals are exhausted.
+      while (backendHasMore && attempts < 5 && newJobs.length === 0) {
+        attempts += 1;
+        searchPageRef.current += 1;
+        const response = await fetchSearchPage(query, locations, searchPageRef.current);
+        backendHasMore = Boolean(response.data?.run?.has_more);
+        const fetched: JobMatch[] = (response.data?.matches || []).map(mapJobMatch);
+        for (const job of fetched) {
+          if (!seen.has(job.id)) {
+            seen.add(job.id);
+            newJobs.push(job);
+          }
+        }
+      }
+      if (newJobs.length) {
+        setJobs((current) => [...current, ...newJobs]);
+        setSearchResultIds((current) => [...(current || []), ...newJobs.map((job) => job.id)]);
+      }
+      // Hide "Load more" once there are no further jobs to fetch.
+      setSearchHasMore(backendHasMore && newJobs.length > 0);
+    } catch (caught) {
+      setLiveError(apiErrorMessage(caught, "Could not load more results."));
+    } finally {
+      setSearchLoadingMore(false);
+    }
+  }, [searchHasMore, searchLoadingMore]);
 
   const metrics = useMemo(
     () => ({
@@ -531,7 +579,7 @@ export default function App() {
         element={
           <PrivateRoute>
             <LiveShell {...shellProps}>
-              <Jobs jobs={jobs} onApprove={approveJob} onSkip={skipJob} onQueue={queueJob} onRefresh={refreshLiveData} onSearch={runManualSearch} searchLoading={manualSearchLoading} lastSearchSummary={lastSearchSummary} searchResultIds={searchResultIds} onClearSearchScope={() => setSearchResultIds(null)} applyingLocked={Boolean(pendingApply)} />
+              <Jobs jobs={jobs} onApprove={approveJob} onSkip={skipJob} onQueue={queueJob} onRefresh={refreshLiveData} onSearch={runManualSearch} searchLoading={manualSearchLoading} lastSearchSummary={lastSearchSummary} searchResultIds={searchResultIds} onClearSearchScope={() => setSearchResultIds(null)} onLoadMore={loadMoreResults} hasMore={searchHasMore} loadingMore={searchLoadingMore} applyingLocked={Boolean(pendingApply)} />
             </LiveShell>
           </PrivateRoute>
         }

@@ -1,4 +1,4 @@
-import { AlertTriangle, CheckCircle, Clock, ExternalLink, FileText, RefreshCw, Search, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle, ExternalLink, FileText, RefreshCw, Search, XCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { StatusPill } from "../components/StatusPill";
@@ -11,6 +11,10 @@ interface TrackerProps {
   onSyncApplied?: () => void | Promise<void>;
 }
 
+// Assist-only lifecycle: a job is opened on the portal (Portal pending), then the
+// user confirms the outcome (Applied / Failed); Naukri sync can advance applied
+// jobs to Viewed / Interview / Offer. Old auto-apply statuses (fetched, approved,
+// blocked, rejected, archived) are intentionally not surfaced as tabs.
 const stages: Array<{ id: ApplicationStatus; label: string }> = [
   { id: "external_pending", label: "Portal pending" },
   { id: "applied", label: "Applied" },
@@ -18,12 +22,7 @@ const stages: Array<{ id: ApplicationStatus; label: string }> = [
   { id: "interview", label: "Interview" },
   { id: "offer", label: "Offer" },
   { id: "needs_review", label: "Needs review" },
-  { id: "blocked", label: "Blocked" },
   { id: "failed", label: "Failed" },
-  { id: "fetched", label: "Fetched" },
-  { id: "approved", label: "Approved" },
-  { id: "rejected", label: "Rejected" },
-  { id: "archived", label: "Archived" },
 ];
 
 function isTrackerStage(value: string | null): value is ApplicationStatus {
@@ -59,7 +58,6 @@ export function Tracker({ applications, onUpdate, onSyncApplied }: TrackerProps)
 
   const portals = useMemo(() => Array.from(new Set(applications.map((app) => app.portal))).sort(), [applications]);
   const counts = useMemo(() => stageCounts(applications), [applications]);
-  const attentionCount = applications.filter((app) => ["external_pending", "needs_review", "blocked", "failed"].includes(app.status)).length;
 
   useEffect(() => {
     if (isTrackerStage(requestedStage) && requestedStage !== activeStage) {
@@ -105,9 +103,6 @@ export function Tracker({ applications, onUpdate, onSyncApplied }: TrackerProps)
                 {syncing ? "Syncing" : "Sync applied status"}
               </button>
             )}
-            <Metric label="Waiting" value={counts.external_pending || 0} tone="warning" />
-            <Metric label="Applied" value={counts.applied || 0} tone="success" />
-            <Metric label="Needs attention" value={attentionCount} tone={attentionCount ? "warning" : undefined} />
           </div>
         </div>
       </section>
@@ -148,13 +143,6 @@ export function Tracker({ applications, onUpdate, onSyncApplied }: TrackerProps)
           </div>
         </div>
       </section>
-
-      {applications.some((app) => app.warning) && (
-        <p className="mb-4 flex items-center gap-2 rounded-lg bg-[var(--bg-elevated)] px-3 py-2 text-sm text-[var(--text-muted)]">
-          <AlertTriangle size={15} style={{ color: "var(--state-warning)" }} />
-          {applications.filter((app) => app.warning).length} tracker records need review.
-        </p>
-      )}
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_430px]">
         <section className="air-surface min-h-[520px] overflow-hidden rounded-lg">
@@ -278,18 +266,6 @@ function ApplicationDetails({ application, onUpdate }: { application?: Applicati
           {application.companyRating !== undefined && <Info label="Company rating" value={`${application.companyRating}★`} />}
         </dl>
 
-        <section className="mt-4 rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] p-3">
-          <p className="text-sm font-semibold">Timeline</p>
-          <ol className="mt-3 space-y-3 text-sm text-[var(--text-muted)]">
-            {timelineItems(application).map((item) => (
-              <li key={item} className="flex gap-2">
-                <Clock size={14} className="mt-0.5 shrink-0" />
-                {item}
-              </li>
-            ))}
-          </ol>
-        </section>
-
         <section className="mt-4 rounded-lg border border-[var(--border-default)] p-3">
           <p className="flex items-center gap-2 text-sm font-semibold">
             <FileText size={15} />
@@ -351,19 +327,6 @@ function stageCounts(applications: Application[]): Partial<Record<ApplicationSta
   }, {});
 }
 
-function timelineItems(application: Application): string[] {
-  const items = ["Fetched and scored", application.status === "external_pending" ? "Opened on portal" : "Reviewed in Hunter"];
-  if (application.status === "applied") items.push("User confirmed application");
-  else if (application.status === "failed") items.push("Marked as could not apply");
-  else items.push(`Current state: ${stageLabel(application.status)}`);
-  items.push(`Latest update: ${application.latestDate}`);
-  return items;
-}
-
-function stageLabel(status: ApplicationStatus): string {
-  return stages.find((stage) => stage.id === status)?.label || status;
-}
-
 function Info({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0">
@@ -385,12 +348,3 @@ function ScoreBadge({ score, large = false }: { score: number; large?: boolean }
   );
 }
 
-function Metric({ label, value, tone }: { label: string; value: number | string; tone?: "success" | "warning" }) {
-  const color = tone === "success" ? "var(--state-success)" : tone === "warning" ? "var(--state-warning)" : "var(--text-primary)";
-  return (
-    <div className="inline-flex h-9 items-center gap-2 rounded-md border border-[var(--border-default)] bg-[var(--bg-surface)] px-3">
-      <span className="text-xs text-[var(--text-muted)]">{label}</span>
-      <span className="text-sm font-semibold" style={{ color }}>{value}</span>
-    </div>
-  );
-}
