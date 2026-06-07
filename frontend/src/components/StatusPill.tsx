@@ -13,6 +13,7 @@ const toneColor = {
 
 export function StatusPill({ label, tone = "neutral" }: StatusPillProps) {
   const color = toneColor[tone];
+  const displayLabel = friendlyLabel(label);
   return (
     <span
       className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium"
@@ -23,7 +24,19 @@ export function StatusPill({ label, tone = "neutral" }: StatusPillProps) {
       }}
     >
       <span className="h-1.5 w-1.5 rounded-full" style={{ background: color }} />
-      {label}
+      {displayLabel}
     </span>
   );
+}
+
+function friendlyLabel(label: string): string {
+  const mapped: Record<string, string> = {
+    external_pending: "Portal pending",
+    needs_review: "Needs review",
+    resume_and_preferences: "Resume + profile",
+  };
+  if (mapped[label]) return mapped[label];
+  return label
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }

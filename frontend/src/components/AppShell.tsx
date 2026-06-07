@@ -5,6 +5,7 @@ import {
   Gauge,
   KanbanSquare,
   Link2,
+  LoaderCircle,
   LogOut,
   Menu,
   RefreshCw,
@@ -13,8 +14,8 @@ import {
   User,
   X,
 } from "lucide-react";
-import { NavLink, useNavigate } from "react-router-dom";
-import { useState } from "react";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
+import { type FormEvent, useState } from "react";
 import { BrandMark } from "./BrandMark";
 
 interface AppShellProps {
@@ -25,6 +26,12 @@ interface AppShellProps {
     applied: number;
     blocked: number;
   };
+  portalIssues?: Array<{ portal: string; name: string; message: string }>;
+  onSync?: () => void | Promise<unknown>;
+  onSearch?: (query: string) => void | Promise<void>;
+  searchLoading?: boolean;
+  autoSyncState?: "idle" | "syncing" | "paused";
+  lastAutoSyncedAt?: string;
 }
 
 const navItems = [
@@ -35,22 +42,57 @@ const navItems = [
   { label: "Settings", path: "/settings", icon: Settings },
 ];
 
-export function AppShell({ children, metrics }: AppShellProps) {
+function formatLastSync(value: string) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+export function AppShell({
+  children,
+  metrics,
+  portalIssues = [],
+  onSync,
+  onSearch,
+  searchLoading = false,
+  autoSyncState = "idle",
+  lastAutoSyncedAt = "",
+}: AppShellProps) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [syncState, setSyncState] = useState<"idle" | "syncing" | "done">("idle");
+  const [searchQuery, setSearchQuery] = useState("");
   const navigate = useNavigate();
+  const location = useLocation();
+  const showGlobalSearch = location.pathname !== "/jobs";
+  const syncBusy = syncState === "syncing" || autoSyncState === "syncing";
+  const syncLabel = syncState === "done" ? "Updated" : autoSyncState === "paused" ? "Paused" : syncBusy ? "Syncing" : "Auto sync";
+  const syncTimeLabel = formatLastSync(lastAutoSyncedAt);
+  const syncTitle = `Auto sync refreshes saved matches and Tracker status. It never searches, applies, or opens portals.${syncTimeLabel ? ` Last refresh: ${syncTimeLabel}.` : ""} Click to refresh now.`;
 
-  const runSync = () => {
+  const runSync = async () => {
+    if (syncState === "syncing") return;
     setSyncState("syncing");
-    window.setTimeout(() => setSyncState("done"), 700);
-    window.setTimeout(() => setSyncState("idle"), 2200);
+    try {
+      await onSync?.();
+      setSyncState("done");
+    } finally {
+      window.setTimeout(() => setSyncState("idle"), 1600);
+    }
   };
 
   const signOut = () => {
     localStorage.removeItem("access_token");
     navigate("/auth");
+  };
+
+  const runSearch = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const query = searchQuery.trim();
+    navigate("/jobs");
+    await onSearch?.(query);
   };
 
   const closeMenus = () => {
@@ -96,27 +138,63 @@ export function AppShell({ children, metrics }: AppShellProps) {
             <Menu size={16} />
           </button>
 
-          <div className="relative order-last w-full flex-1 lg:order-none lg:ml-auto lg:max-w-md">
-            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" />
-            <input className="terminal-field h-9 w-full rounded-md pl-9 pr-3 text-sm" placeholder="Search jobs, companies, applications" />
-          </div>
+          {showGlobalSearch ? (
+            <form onSubmit={runSearch} role="search" className="relative order-last w-full flex-1 lg:order-none lg:ml-auto lg:max-w-lg" aria-busy={searchLoading}>
+              {searchLoading ? (
+                <LoaderCircle size={16} className="absolute left-3 top-1/2 -translate-y-1/2 animate-spin text-[var(--accent-primary)]" />
+              ) : (
+                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" />
+              )}
+              <input
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                disabled={searchLoading}
+                className={`terminal-field h-10 w-full rounded-lg pl-9 pr-28 text-sm shadow-sm disabled:cursor-wait disabled:opacity-90 ${searchLoading ? "border-[var(--accent-primary)] bg-[var(--bg-elevated)]" : ""}`}
+                placeholder="Search jobs or use profile"
+              />
+              <button
+                type="submit"
+                disabled={searchLoading}
+                className="absolute right-1 top-1/2 inline-flex h-8 -translate-y-1/2 items-center gap-1 rounded-md bg-[var(--accent-primary)] px-3 text-xs font-semibold text-white transition hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:bg-slate-300"
+              >
+                {searchLoading && <LoaderCircle size={12} className="animate-spin" />}
+                {searchLoading ? "Finding" : searchQuery.trim() ? "Search" : "Find"}
+              </button>
+            </form>
+          ) : (
+            <div className="hidden flex-1 lg:block" />
+          )}
 
           <button
             type="button"
-            onClick={runSync}
-            className="air-button h-9 border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 text-[var(--text-primary)] hover:border-[var(--accent-primary)]"
+            onClick={() => void runSync()}
+            title={syncTitle}
+            aria-label={syncTitle}
+            className={`air-button h-9 border bg-[var(--bg-surface)] px-3 text-[var(--text-primary)] hover:border-[var(--accent-primary)] ${
+              syncBusy ? "border-[var(--accent-primary)] text-[var(--accent-primary)]" : "border-[var(--border-default)]"
+            }`}
           >
-            <RefreshCw size={15} className={syncState === "syncing" ? "animate-spin" : ""} />
-            <span className="hidden sm:inline">{syncState === "done" ? "Synced" : syncState === "syncing" ? "Syncing" : "Sync"}</span>
+            <RefreshCw size={15} className={syncBusy ? "animate-spin" : ""} />
+            <span className="hidden sm:inline">{syncLabel}</span>
           </button>
 
           <button
             type="button"
-            onClick={() => navigate("/tracker")}
+            onClick={() => navigate("/jobs")}
             className="air-button h-9 border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 text-[var(--text-primary)] hover:border-[var(--accent-primary)]"
           >
             Ready
             <span className="rounded-full bg-[var(--accent-primary)] px-2 py-0.5 text-xs font-semibold text-white">{metrics.approved}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => navigate("/tracker?status=applied")}
+            className="air-button h-9 border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 text-[var(--text-primary)] hover:border-[var(--state-success)]"
+          >
+            <CheckCircle size={15} style={{ color: "var(--state-success)" }} />
+            <span className="hidden sm:inline">Applied</span>
+            <span className="rounded-full bg-[var(--state-success)] px-2 py-0.5 text-xs font-semibold text-white">{metrics.applied}</span>
           </button>
 
           <button
@@ -130,7 +208,7 @@ export function AppShell({ children, metrics }: AppShellProps) {
             className="relative inline-flex h-9 w-9 items-center justify-center rounded-md border border-[var(--border-default)] bg-[var(--bg-surface)]"
           >
             <Bell size={16} />
-            {metrics.blocked > 0 && <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-[var(--state-warning)]" />}
+            {(metrics.blocked > 0 || portalIssues.length > 0) && <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-[var(--state-warning)]" />}
           </button>
 
           <button
@@ -154,13 +232,15 @@ export function AppShell({ children, metrics }: AppShellProps) {
             <div className="absolute right-20 top-[calc(100%+8px)] z-40 w-[min(380px,calc(100vw-32px))] rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] p-3 shadow-xl">
               <p className="text-sm font-semibold">Notifications</p>
               <div className="mt-3 space-y-1 text-sm">
-                <button type="button" onClick={() => { navigate("/portals"); closeMenus(); }} className="block w-full rounded-md p-3 text-left hover:bg-[var(--bg-elevated)]">
-                  <span className="font-medium">Portal check needed</span>
-                  <span className="mt-1 block text-xs text-[var(--text-muted)]">Foundit token needs reconnect.</span>
-                </button>
+                {portalIssues.map((issue) => (
+                  <button key={issue.portal} type="button" onClick={() => { navigate(`/portals?connect=${issue.portal}`); closeMenus(); }} className="block w-full rounded-md p-3 text-left hover:bg-[var(--bg-elevated)]">
+                    <span className="font-medium">{issue.name} needs re-login</span>
+                    <span className="mt-1 block text-xs text-[var(--text-muted)]">{issue.message}</span>
+                  </button>
+                ))}
                 <button type="button" onClick={() => { navigate("/jobs"); closeMenus(); }} className="block w-full rounded-md p-3 text-left hover:bg-[var(--bg-elevated)]">
                   <span className="font-medium">{metrics.matches} matches ready</span>
-                  <span className="mt-1 block text-xs text-[var(--text-muted)]">Review before applying.</span>
+                  <span className="mt-1 block text-xs text-[var(--text-muted)]">Review before opening the portal.</span>
                 </button>
               </div>
             </div>
@@ -219,7 +299,7 @@ export function AppShell({ children, metrics }: AppShellProps) {
                 <CheckCircle size={16} style={{ color: "var(--state-success)" }} />
                 Apply checks
               </div>
-              <p className="mt-2 text-xs text-[var(--text-muted)]">The app checks session, limits, and duplicates before applying.</p>
+              <p className="mt-2 text-xs text-[var(--text-muted)]">The app curates jobs and tracks portal submissions after you confirm them.</p>
             </div>
           </aside>
         </div>

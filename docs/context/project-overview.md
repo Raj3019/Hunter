@@ -2,81 +2,90 @@
 
 ## Overview
 
-Hunter is a job automation web app for Indian job seekers. It takes a user's resume and job preferences, searches for matching jobs across major Indian portals (Naukri, Foundit, Internshala, LinkedIn, Workday company sites, Taleo sites, TCS, Infosys, and more), stores useful job snapshots for review and tracking, scores each job against the resume using AI, lets the user review and approve matches, generates user-approved tailored resume drafts per job, and applies through the original source portal. Every application is tracked in a dashboard.
+Hunter is a curated job wrapper for Indian job seekers. It takes a user's profile preferences and resume, fetches jobs based on preferences (skills, titles, locations, work type, salary, experience, and avoid-list), stores useful job snapshots for review and tracking, scores each job against the resume using AI, lets the user review matches, generates user-approved tailored resume drafts per job, opens the original source portal, and tracks the user-confirmed outcome.
 
 Hunter does not replace the job portal. The original job remains on the source portal, while Hunter stores a snapshot of the job details so the user can review, dedupe, score, and track applications reliably.
 
 ## Goals
 
-1. Reduce the time a job seeker spends manually searching and applying across multiple portals to near zero
-2. Surface only high-quality matches (AI score ≥ 60/100) so the user reviews a curated shortlist, not hundreds of raw results
-3. Support fast user-reviewed Apply now while keeping automated/batch apply safe with human-like delays, per-portal daily limits, and safe apply windows
+1. Reduce the time a job seeker spends manually searching and applying across multiple portals.
+2. Surface high-quality matches (AI score >= 60/100) so the user reviews a curated shortlist, not hundreds of raw results.
+3. Keep the MVP safe and portal-compliant by opening original job pages and requiring user confirmation before marking anything applied.
 
 ## Core User Flow
 
-1. User uploads their PDF resume — the app parses and displays the extracted data for confirmation
-2. User sets job preferences (titles, locations, work type, salary range, companies to avoid)
-3. User connects portals — pastes Bearer token for Naukri/Foundit, does a one-time manual login for LinkedIn/Playwright-based portals, saves encrypted credentials for company portals (TCS, Infosys, etc.)
-4. Daily at 8am IST the scheduler fetches jobs from all connected portals, stores job snapshots, scores them with AI, and saves matches above 60
-5. User opens Dashboard, sees today's scored matches, and reviews each job snapshot with score, matched skills, missing skills, location, experience, salary, and source portal
-6. User clicks Tailor Resume to generate a job-specific tailored resume draft from the current uploaded resume and the selected job description
-7. Hunter shows the draft, suggested changes, matched/missing skills, warnings, and the generated resume artifact version without overwriting the original resume
-8. User approves the tailored resume artifact, approves the job for apply, skips the job, or uses Apply now to submit immediately after quick checks
-9. Manual Apply now runs pre-apply checks and submits through the original portal if blockers are clear, using the approved tailored artifact for that job when available and otherwise the base uploaded resume
-10. Optional auto-apply uses SafeApplyManager to apply approved matches slowly within user-configured limits and safe windows
-11. Tracker shows all applications in stage rows (Fetched, Approved, Applied, Interview, Rejected, Archived); user can update status manually and see which resume version was used
+1. User uploads their PDF resume; the app parses and displays the extracted data used for match scoring and tailoring.
+2. User sets job preferences (skills, titles, locations, work type, salary range, companies to avoid) used for job fetching.
+3. Naukri runs as public search in the MVP; browser login is optional and never required for search.
+4. User can optionally connect portals and company accounts when those flows are needed.
+5. User can run Manual Job Search from the Jobs/top-bar search field to fetch from saved preferences, optionally override the role query, score with the resume, and save live matches immediately.
+6. Daily at 8am IST the scheduler also fetches jobs from saved preferences, stores job snapshots, scores them against the resume with AI, and saves matches above 60.
+7. User opens Dashboard or Jobs, sees scored matches, and reviews each job snapshot with score, matched skills, missing skills, location, experience, salary, and source portal.
+8. User clicks Tailor Resume to generate a job-specific tailored resume draft from the current uploaded resume and the selected job description.
+9. Hunter shows the draft, suggested changes, matched/missing skills, warnings, and the generated resume artifact version without overwriting the original resume.
+10. User approves the tailored resume artifact, opens the original portal page, skips the job, or reviews an existing portal-pending task.
+11. Hunter creates a `portal pending` tracker task with the source URL and resume version, then the user completes the application on the portal.
+12. User confirms **I applied** or **Could not apply** in Tracker; Hunter records the final status and confirmation time.
+13. Future auto-submit remains dormant until a portal flow is explicitly verified as stable and allowed.
 
 ## Features
 
 ### Job Discovery
-- Daily automated fetch across Naukri, Foundit, Internshala, LinkedIn, Workday company sites, Taleo sites, TCS iBegin, Infosys Careers, Cognizant, Wipro, and more
-- Job snapshot storage for review, scoring, dedupe, and tracker history while the source portal remains the source of truth
-- AI job scoring (0–100) with matched skills, missing skills, and apply recommendation
-- Recommended jobs from Naukri's internal recommendation API
+
+- Daily automated fetch across Naukri, Foundit, Internshala, LinkedIn, Workday company sites, Taleo sites, TCS iBegin, Infosys Careers, Cognizant, Wipro, and more.
+- Manual on-demand preference-based search from the app shell/Jobs search field, starting with public Naukri search via `/jobapi/v3/search`.
+- Job snapshot storage for review, scoring, dedupe, and tracker history while the source portal remains the source of truth.
+- Resume-based AI job scoring (0-100) with matched skills, missing skills, and apply recommendation.
+- Recommended jobs from Naukri's internal recommendation API are optional future enrichment; normal public search must continue if recommendations fail.
 
 ### Resume & Application
-- PDF resume upload and AI-powered structured parsing
-- AI resume tailoring per job description that creates a draft artifact/version, shows reviewable changes, and never invents new experience
-- AI questionnaire answerer for application form questions
-- User-reviewed Apply now through the original portal
-- Optional per-portal auto-apply with tailored resume upload where supported
+
+- PDF resume upload and AI-powered structured parsing.
+- AI resume tailoring per job description that creates a draft artifact/version, shows reviewable changes, and never invents new experience.
+- AI questionnaire answerer for application form questions.
+- User-reviewed portal-open flow through the original source job page.
+- Dormant verified-auto-submit code path for future official/native flows only.
 
 ### Tracking & Notifications
-- Application tracker dashboard with stage rows and status updates
-- WhatsApp notifications via Twilio (token expiry, interview alerts, daily match summary)
-- Email notifications via Resend (application confirmations, daily digest)
+
+- Application tracker dashboard with stage rows and status updates.
+- WhatsApp notifications via Twilio (token expiry, interview alerts, daily match summary).
+- Email notifications via Resend (application confirmations, daily digest).
 
 ### Portal Management
-- Bearer token storage for API-based portals (Naukri, Foundit)
-- Persistent Chrome profiles for Playwright-based portals (LinkedIn, Internshala, Workday, Taleo)
-- Encrypted credential storage for company portals that require a registered account
+
+- Naukri public search for the MVP, with optional browser login for saved-session features.
+- Bearer token storage for API-based portals where needed, such as Foundit.
+- Persistent Chrome profiles for Playwright-based portals (LinkedIn, Internshala, Workday, Taleo).
+- Encrypted credential storage for company portals that require a registered account.
 
 ## Scope
 
 ### In Scope
 
-- Web app (desktop-first) with React frontend and FastAPI backend
-- Portals: Naukri, Foundit, Internshala, LinkedIn Easy Apply, Workday (generic handler), Taleo (generic handler), TCS iBegin, Infosys, Cognizant, Wipro, HCL
-- AI scoring, tailoring, and questionnaire answering using Claude API
-- Daily scheduled job fetch, job snapshot storage, manual reviewed apply, and optional auto-apply
-- Application tracker with manual status override
-- WhatsApp + email notifications
-- Encrypted credential storage for company portals
-- Deployment on AWS EC2 t2.micro with Elastic IP
+- Web app (desktop-first) with React frontend and FastAPI backend.
+- Portals: Naukri public search, Foundit, Internshala, LinkedIn Easy Apply, Workday (generic handler), Taleo (generic handler), TCS iBegin, Infosys, Cognizant, Wipro, HCL.
+- AI scoring, tailoring, and questionnaire answering using Claude API.
+- Manual job search, daily scheduled job fetch, job snapshot storage, portal-open tracking, and user-confirmed application outcomes.
+- Application tracker with manual status override.
+- WhatsApp and email notifications.
+- Encrypted credential storage for company portals.
+- Deployment on AWS EC2 t2.micro with Elastic IP.
 
 ### Out of Scope
 
-- Mobile app (PWA/push notifications can be added in Month 3)
-- Proxy rotation (breaks Naukri session binding to Elastic IP)
-- Creating fake accounts on any portal
-- Portals outside India (international LinkedIn, Indeed US, etc.)
-- Resume building from scratch (only tailoring/versioning of an existing uploaded resume)
+- Requiring Naukri login for normal MVP search.
+- Mobile app (PWA/push notifications can be added later).
+- Proxy rotation.
+- Creating fake accounts on any portal.
+- Portals outside India (international LinkedIn, Indeed US, etc.).
+- Resume building from scratch (only tailoring/versioning of an existing uploaded resume).
 
 ## Success Criteria
 
-1. A user can upload a resume, connect Naukri, and receive scored job matches within 24 hours
-2. User-reviewed Apply now to a Naukri job completes end-to-end through the original portal after quick checks
-3. Auto-apply can apply to approved jobs within configured daily limits and safe windows without looking like mass automation
-4. LinkedIn Easy Apply walks through all form steps and submits without CAPTCHA or block during normal conservative usage
-5. Tailored resume drafts are generated as job-specific artifacts, shown to the user before use, and no fabricated experience appears in the output
-6. Application status updates appear in the Tracker within seconds of an apply completing or being blocked
+1. A user can save profile preferences, upload a resume, click Find from profile, and receive Naukri resume-scored job matches without logging into Naukri.
+2. A user can open a curated Naukri job on the original portal and Hunter creates a portal-pending Tracker task.
+3. User confirmation from portal pending to applied updates Tracker and records `external_apply_confirmed_at`.
+4. Broad unattended auto-apply is not exposed in MVP; future auto-submit requires explicitly verified official/native flows.
+5. Tailored resume drafts are generated as job-specific artifacts, shown to the user before use, and no fabricated experience appears in the output.
+6. Application status updates appear in the Tracker within seconds of the user confirming the portal outcome.

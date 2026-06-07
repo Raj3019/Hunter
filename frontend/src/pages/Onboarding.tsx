@@ -14,12 +14,13 @@ export function Onboarding() {
   const [parseState, setParseState] = useState<"empty" | "parsing" | "success" | "failed">("empty");
   const [parsedResume, setParsedResume] = useState<Record<string, unknown> | null>(null);
   const [preferences, setPreferences] = useState({
-    titles: "Frontend Engineer, React Developer",
-    locations: "Bengaluru, Pune, Remote India",
-    workType: "Hybrid, Remote",
-    salary: "15-28 LPA",
-    experience: "3",
-    avoid: "Night shifts, unpaid tests",
+    skills: "",
+    titles: "",
+    locations: "",
+    workType: "",
+    salary: "",
+    experience: "",
+    avoid: "",
   });
   const [selectedPortals, setSelectedPortals] = useState(["Naukri", "Foundit", "LinkedIn"]);
   const [message, setMessage] = useState("");
@@ -34,7 +35,9 @@ export function Onboarding() {
       setMessage("");
       try {
         const response = await resumeAPI.upload(file);
-        setParsedResume(response.data?.parsed || null);
+        const parsed = response.data?.parsed || null;
+        setParsedResume(parsed);
+        prefillFromResume(parsed);
         setParseState("success");
       } catch (caught) {
         setParseState("failed");
@@ -42,6 +45,24 @@ export function Onboarding() {
       }
     },
   });
+
+  const prefillFromResume = (parsed: Record<string, unknown> | null) => {
+    if (!parsed) return;
+    const derived = {
+      skills: listFromResume(parsed, ["skills", "key_skills", "technical_skills"]),
+      titles: textFromResume(parsed, ["current_role", "title", "designation", "current_title", "role"]),
+      locations: textFromResume(parsed, ["location", "preferred_location", "city", "current_location"]),
+      experience: textFromResume(parsed, ["total_experience_years", "experience_years", "years_of_experience"]),
+    };
+    // Only fill fields the user has not already typed into.
+    setPreferences((current) => ({
+      ...current,
+      skills: current.skills || derived.skills,
+      titles: current.titles || derived.titles,
+      locations: current.locations || derived.locations,
+      experience: current.experience || derived.experience,
+    }));
+  };
 
   const togglePortal = (portal: string) => {
     setSelectedPortals((current) =>
@@ -55,12 +76,13 @@ export function Onboarding() {
     setMessage("");
     try {
       await preferencesAPI.save({
+        skills: splitList(preferences.skills),
         job_titles: splitList(preferences.titles),
         locations: splitList(preferences.locations),
         work_type: splitList(preferences.workType),
         min_salary: parseSalary(preferences.salary, 0),
         max_salary: parseSalary(preferences.salary, 1),
-        experience_years: parseExperience(preferences.experience || preferences.salary),
+        experience_years: parseExperience(preferences.experience),
         avoid_companies: splitList(preferences.avoid),
         apply_mode: "manual",
         auto_apply_enabled: false,
@@ -87,7 +109,7 @@ export function Onboarding() {
         <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Resume & Preferences</h1>
-            <p className="mt-2 text-sm text-[var(--text-muted)]">Set up resume context, matching rules, portal connections, and the apply checks Hunter runs before submitting.</p>
+            <p className="mt-2 text-sm text-[var(--text-muted)]">Set up resume context, matching rules, portal connections, and the confirmation workflow Hunter uses after opening portal jobs.</p>
           </div>
           <button type="button" onClick={() => navigate("/dashboard")} className="rounded-md border border-[var(--border-default)] px-3 py-2 text-sm text-[var(--text-muted)] hover:border-[var(--accent-primary)] hover:text-[var(--text-primary)]">
             Skip to dashboard
@@ -165,9 +187,10 @@ export function Onboarding() {
           {step === 1 && (
             <>
               <h2 className="text-lg font-semibold">Job preferences</h2>
-              <p className="mt-1 text-sm text-[var(--text-muted)]">These values feed daily fetch, scoring, and avoid-list checks.</p>
+              <p className="mt-1 text-sm text-[var(--text-muted)]">These values feed job fetching. Your resume still powers the match score and skill gaps.</p>
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
                 {[
+                  ["skills", "Skills"],
                   ["titles", "Job titles"],
                   ["locations", "Locations"],
                   ["workType", "Work type"],
@@ -226,11 +249,12 @@ export function Onboarding() {
               <p className="mt-1 text-sm text-[var(--text-muted)]">Confirm Hunter can score jobs, tailor resumes, and apply only after your approval.</p>
               <div className="mt-4 grid gap-3 md:grid-cols-3">
                 <SummaryCard label="Resume" value={parseState === "success" ? "Parsed" : "Pending"} />
+                <SummaryCard label="Skills" value={preferences.skills} />
                 <SummaryCard label="Job titles" value={preferences.titles} />
                 <SummaryCard label="Portals" value={selectedPortals.join(", ") || "None selected"} />
               </div>
               <div className="mt-4 rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] p-4 text-sm text-[var(--text-muted)]">
-                Applying remains approval-first: fetched jobs are scored, then you approve before Hunter submits anything.
+                The workflow remains portal-first: fetched jobs are scored, then Hunter opens the original portal and waits for your confirmation.
               </div>
             </>
           )}
@@ -255,6 +279,27 @@ export function Onboarding() {
       </div>
     </>
   );
+}
+
+function textFromResume(resume: Record<string, unknown>, keys: string[]): string {
+  for (const key of keys) {
+    const value = resume[key];
+    if (typeof value === "number" && Number.isFinite(value)) return String(value);
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+}
+
+function listFromResume(resume: Record<string, unknown>, keys: string[]): string {
+  for (const key of keys) {
+    const value = resume[key];
+    if (Array.isArray(value)) {
+      const joined = value.map((item) => String(item).trim()).filter(Boolean).join(", ");
+      if (joined) return joined;
+    }
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
 }
 
 function parseSalary(value: string, index: number): number {

@@ -4,14 +4,192 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
-- MVP Live Flow + Apply Modes implementation is ready for seeded match UI verification and real portal/scheduler data. Backend contracts, frontend live wiring, and live API smoke checks are in place.
+- Assist-only wrapper MVP is now the active product direction. Hunter curates and persists matches, opens original portal pages, and tracks `external_pending` portal tasks until the user confirms the outcome.
 
 ## Current Goal
 
-- Implement the live MVP flow from the existing specs: real auth, resume upload, preferences, portal status, job matches, tracker data, manual Apply now, resume tailoring approval, status alignment, and optional auto-apply controls.
+- Polish Jobs and Tracker around the verified assist-only flow: public search, scored recommendations, Open portal, and user-confirmed application outcomes.
 
 ## Completed
 
+- **Ephemeral Search — Only Acted-On Jobs Persist** (`backend/services/job_discovery.py`, `backend/main.py`, `frontend/src/App.tsx`)
+  - Fixed: after disconnecting Naukri, previously-searched jobs still showed because every scored job was saved to `jobs`/`job_matches` and `GET /api/jobs/matches` reloaded them on app start regardless of portal connection
+  - Manual search is now ephemeral: `run_manual_search` calls the existing non-saving `score_matches` (transient, `persisted: false`) instead of `score_and_save_matches`. Nothing is written to `jobs`/`job_matches`; a job is persisted only when the user opens its portal / applies (snapshot -> `applications`). Verified live: a search left `job_matches` unchanged and returned `persisted: false` matches
+  - Frontend: the review queue (`jobs`) is session-only — `refreshLiveData` no longer calls `getMatches` or sets `jobs` (only refreshes `applications`/Tracker), and manual search replaces the queue. Added `jobsRef` so background refresh returns the current session jobs. So search results no longer get wiped/reloaded, and stored jobs no longer reappear
+  - Disabled the daily 8am auto-fetch (commented out the `scheduler.add_job` in `main.py`, kept the code for future use); jobs are fetched on demand only
+  - Note: existing pre-change `job_matches` rows remain in the DB but are no longer loaded/shown (the table is now effectively unused by the UI; Tracker reads `applications`). Can be purged on request
+- **Status Label Cleanup for Assist-Only Flow** (`frontend/src/utils/jobApply.ts`, `frontend/src/pages/Jobs.tsx`, `frontend/src/pages/Tracker.tsx`)
+  - Hid the `pending` status badge on un-actioned jobs in Jobs (rows + selected panel) so a freshly-searched job shows no status until there is a real outcome
+  - Trimmed the Jobs status filter to the assist-only set: All / Portal pending / Applied / Apply failed (removed pending/approved/applying/blocked/needs_review)
+  - Added a shared `statusLabel()` helper and applied friendly labels across Jobs + Tracker pills (`external_pending` -> "Portal pending", `failed` -> "Apply failed", `needs_review` -> "Needs review", etc.); raw values still used for logic/comparisons
+  - Kept the "Preference X%" and "Search result"/recommendation tags per user choice; `npm run build` passes
+  - Also made the Jobs "Recommended" and "All results" tabs mutually exclusive so recommended jobs no longer appear in All results
+- **Production Readiness Checklist Captured (deployment deferred)** (`docs/context/production-readiness.md`, `docs/context/architecture.md`)
+  - App stays local/dev only for now (single user); multi-user production deployment is intentionally deferred
+  - Added `docs/context/production-readiness.md` listing deferred blockers: gate the `headless=False` browser-login flow to dev only (credential form is the only server-safe Naukri connect), run APScheduler in one process, plan for Naukri single-IP anti-bot limits, and lock down `ENCRYPTION_KEY` + RLS + CORS/HTTPS
+  - Noted that the durable Naukri credential login itself is production-compatible and behaves the same on a server
+  - Linked the checklist from `architecture.md` under a new "Deployment & Production Readiness" section
+- **Honest Naukri Reconnect Signal on Real Login Failure** (`backend/migrations/007_naukri_auth_status.sql`, `backend/portals/naukri/session.py`, `backend/api/routes/portals.py`)
+  - Closed the gap where, if the stored Naukri credentials stopped working (password changed / account locked / login CAPTCHA), silent re-login failed in the background but the UI still showed "connected" because status was based only on credential presence
+  - Added `portal_tokens.auth_failed_at` (migration 007). `get_valid_naukri_auth` now records a failure when decrypt/re-login fails and clears it on the next successful login; the credentials endpoint clears it on reconnect. Writes are best-effort/migration-safe (tolerant of the column not existing yet)
+  - `naukri_status` now reports `expired` + `requires_reconnect` with a clear "Naukri sign-in stopped working … sign in again" message when a real login failure is recorded, while ordinary 1-hour token expiry still auto-refreshes invisibly
+  - **Run migration 007 in Supabase to enable the live behavior.** Verified `py_compile` and the status logic (creds+no-failure -> connected; creds+failure -> sign in again; no creds -> expired)
+- **Reference-Led HTML UI Prototype Set 5** (`ui-flow-variants/variant-13-command-deck.html`, `ui-flow-variants/variant-14-workflow-forge.html`, `ui-flow-variants/variant-15-context-graph.html`, `ui-flow-variants/index.html`)
+  - Added three stronger standalone HTML prototype directions after auditing the taste-skill guidance, the taste-skill example repo structure, and current product UI references
+  - Variant 13, Command Deck: keyboard-first operator surface with command search, contextual action rail, match detail, draft review, tracker receipts, portal vault, and safety rules
+  - Variant 14, Workflow Forge: canvas-first automation concept with trigger/fetch/score/approval/portal/receipt nodes, job queue, draft patching, receipts, and limits
+  - Variant 15, Context Graph: object-model product interface that connects candidate, role, tailored draft, portal account, and receipt records across graph, list, and detail views
+  - Wired the new variants into the local prototype gallery for direct comparison against all earlier HTML concepts
+
+- **App Audit Bug Fixes (empty-state crashes, fake UI, data hygiene)** (`backend/core/database.py`, `backend/core/auth.py`, `backend/api/routes/{applications,jobs,preferences,resume}.py`, `backend/services/job_discovery.py`, `backend/scheduler/daily_fetch.py`, `backend/portals/naukri/connect.py`, `frontend/src/pages/{Onboarding,Dashboard,Settings}.tsx`)
+  - **maybe_single() 500s (high):** confirmed supabase-py 2.5.0 returns `None` (not an APIResponse) from `maybe_single().execute()` on zero rows, so `result.data` raised `AttributeError` → HTTP 500. This broke first-run/empty states (e.g. `GET /preferences`, `GET /resume/parsed`, and manual search for a user with no preferences/resume). Added `NULL_RESULT` sentinel in `core/database.py` and appended `or NULL_RESULT` to all ~24 `maybe_single().execute()` sites; verified missing rows now return `{}`/`None` and existing rows still work
+  - **Onboarding placeholder preferences (high):** the preferences form was pre-filled with hardcoded values ("React, TypeScript, Python, FastAPI", etc.) and saved verbatim if unedited, ignoring the parsed resume. Changed defaults to empty and prefilled skills/title/location/experience from the parsed resume on upload (only filling empty fields). Also fixed experience falling back to parsing the salary string
+  - **Dashboard fake status (medium):** Portal health, the top status pills, and the bottom strip were hardcoded ("Naukri Connected / Foundit Expired / LinkedIn Ready"). Now fetched from `GET /api/portals/status` and rendered as real connected/reconnect state with a live connected count
+  - **Application status hygiene (medium):** `PATCH /applications/{id}` wrote app-only statuses (viewed/interview/offer/rejected/archived) directly into `job_matches.status`. Added a mapping so the match row only ever holds a valid match status
+  - **Settings wiped allowed portals (medium):** saving from Settings always sent `auto_apply_allowed_portals: []`. Now loads and preserves the saved value
+  - **Auth per-request network call (medium):** `get_current_user_id` hit Supabase Auth on every request. Added a 30s in-memory TTL cache keyed by a hash of the token (raw token never stored)
+  - **Scheduler durable Naukri login (medium):** `daily_fetch._fetch_all_portals` now obtains a live client via `get_valid_naukri_auth` so the 8am fetch pulls personalized recommendations when the user is connected, falling back to public keyword search otherwise
+  - **Settings fake resume UI (low):** replaced the hardcoded "Parsed 98% - 2m ago" and the editable-but-unwired resume-version field with the real parse status (Parsed/None) and a read-only version label
+  - Removed dead `_job_to_dict`/`_upsert_job` helpers from `daily_fetch.py`
+  - Verified backend `py_compile`, `npm run build`, and live checks for the crash fix and the status mapping
+- **Anti-Template HTML UI Prototype Set 4** (`ui-flow-variants/variant-10-protocol-ledger.html`, `ui-flow-variants/variant-11-orbit-map.html`, `ui-flow-variants/variant-12-dossier-room.html`, `ui-flow-variants/index.html`)
+  - Added three more visually distinct standalone HTML prototypes after the previous set felt too similar
+  - Variant 10, Protocol Ledger: all-sharp Swiss/control-ledger interface with printed-rule composition, persistent case file, resume tailoring, tracker, portal registry, and safety controls
+  - Variant 11, Orbit Map: dark spatial traffic-control concept with orbital workflow map, signal queue, draft approval, confirmation log, portal vault, and safe-apply rules
+  - Variant 12, Dossier Room: tactile document-room concept with role files, resume drafts, receipts, account drawer, and rules cabinet
+  - Wired the new variants into the local prototype gallery for direct comparison against the earlier variants
+- **Manual Search Results No Longer Vanish After Refresh** (`frontend/src/App.tsx`, `frontend/src/pages/Jobs.tsx`)
+  - Fixed a bug where running a keyword search (e.g. "ML"), then opening a portal or switching back to the Hunter tab, replaced the focused search results with the full `/api/jobs/matches` history and hid them behind the Recommended (score ≥ threshold) tab — forcing the user to re-search every time
+  - Root cause: manual search and the global matches list shared one `jobs` state, and `refreshLiveData()` (called by open-portal, the `focus`/`visibilitychange` auto-sync, navigation, and the 60s timer) overwrote the search view with the whole match history
+  - Added a `searchResultIds` scope in `App.tsx`: a manual search records its result ids and merges results into the global list; the Jobs page renders only the scoped search results (in search order), so background refreshes update statuses without dropping the view
+  - Jobs page defaults to the All-results view while a search scope is active so sub-threshold results stay visible, and adds a "Last search (N) · Show all" chip to clear the scope and browse every saved match
+  - Verified `npm run build` passes; confirmed against the live DB that the 7 "ML Developer" matches persist correctly (the bug was purely frontend view state)
+- **End-to-End HTML UI Prototype Set 3** (`ui-flow-variants/variant-07-air-control.html`, `ui-flow-variants/variant-08-signal-ledger.html`, `ui-flow-variants/variant-09-candidate-studio.html`, `ui-flow-variants/index.html`)
+  - Added three standalone HTML prototype variants grounded in the current assist-only Hunter product model and existing Air Workbench UI context
+  - Variant 07, Air Control: light approved-workbench direction with horizontal navigation, manual search, scored job queue, selected match detail, tailored resume modal, tracker confirmation, portal rows, and safety settings
+  - Variant 08, Signal Ledger: dark dense operator console with ranked signal tables, resume approval, stage ledger, portal registry, and safe-apply controls
+  - Variant 09, Candidate Studio: human-first review studio covering setup, matches, resume draft review, tracker records, portal desk, and control settings
+  - Wired the new variants into the local `ui-flow-variants/index.html` gallery
+- **Durable Naukri Login via Encrypted Credentials** (`backend/migrations/006_naukri_credentials.sql`, `backend/portals/naukri/session.py`, `backend/api/routes/portals.py`, `backend/services/job_discovery.py`, `frontend/src/api/client.ts`, `frontend/src/pages/Portals.tsx`)
+  - Diagnosed the real cause of "Naukri keeps asking to sign in": Naukri's `nauk_at` bearer token is a JWT that expires after ~1 hour, and Naukri logs a browser profile out once it lapses (purging the 1-year `nauk_rt`/`nauk_sid` cookies). The app stored only the 1h token and hardcoded status to "connected", so the saved login was dead within an hour while the UI still claimed it was connected. Verified against live Naukri: token `exp` was 1h; saved DB token returned dashboard 401; persistent profile retained only `J`/`_t_ds`; injecting durable cookies and revisiting Naukri reproduced the same logged-out wipe; no transparent refresh endpoint fires on navigation/401
+  - Added `006_naukri_credentials.sql` to add `portal_tokens.username` and `portal_tokens.password_encrypted` (Fernet/AES-256); `expires_at` now records the token JWT exp. **This migration must be run in Supabase before the credential connect flow works**
+  - Added `backend/portals/naukri/session.py` with JWT-exp decoding, `get_valid_naukri_auth()` (uses the cached token while live; silently re-logs in from stored encrypted credentials when expired/missing and persists the fresh token + expiry; returns None when no usable login), `login_with_credentials()`, and an honest `naukri_status()` that reports connected / auto-refreshing / expired without a network call
+  - Reworked `portals.py`: added `POST /api/portals/naukri/credentials` (validates with a live login, encrypts the password immediately, never returns it) and `DELETE /api/portals/naukri`; `_check_naukri_status` now reports real state instead of a hardcoded "connected"; status responses strip `bearer_token` and `password_encrypted` and expose `has_credentials`
+  - Wired `job_discovery._search_naukri` to use `get_valid_naukri_auth` so the durable login powers personalized recommended jobs (profile/empty-query runs only) and authed apply, with public keyword search as fallback
+  - Replaced the Naukri Portals row with a credential sign-in form (email + password, password hidden, never shown again) plus real Connected/Expired status and a working Disconnect; kept the guided browser-login as an Advanced fallback
+  - Verified live: `login_with_credentials` returns a working token + profile_id + exp; silent re-login of an expired token yields a fresh dashboard-200 token and persists a new `expires_at`; honest status returns "expired – sign in again" for the current dead-token row. Verified `python -m py_compile` for the backend changes and `npm run build`
+- **Standalone UI Refresh Prototypes** (`ui-flow-variants/`)
+  - Added three static HTML prototype directions for a lighter Hunter SaaS experience without changing the existing React UI
+  - Variant 01, Flow Board: calm top navigation, activation checklist, match review, tracker, and portal health
+  - Variant 02, Ops Console: compact sidebar command center with dense queue, review, tracker, and settings screens
+  - Variant 03, Review Studio: approval-first flow focused on setup, match selection, tailored draft review, and portal confirmation
+  - Each variant includes light/dark theme switching and restrained color tokens to avoid heavy gradients or bulky visual treatment
+- **Reference-Inspired UI Prototype Set 2** (`ui-flow-variants/`)
+  - Added three additional standalone HTML variants inspired by Envato job dashboard templates and Dribbble job-portal explorations, while keeping the existing React UI untouched
+  - Replaced the first pass of variants 04-06 after visual review because the directions were too similar in structure and typography
+  - Variant 04, Talent Radar: warm marketplace-style workspace with oversized Bricolage Grotesque headings, a polished fit-radar module, premium job cards, match review, resume draft, and tracker flow
+  - Variant 05, Signal Desk: dark-first command center with IBM Plex Mono typography, terminal-like queue tables, stage lanes, draft cockpit, and tracker flow
+  - Variant 06, Editorial Studio: serif-led review room with Fraunces typography, magazine spacing, document-style job review, resume approval, and tracker flow
+  - Kept copy short, used semantic light/dark tokens, and avoided heavy gradient-heavy or bulky visual treatment
+  - Verified variants 04-06 with Playwright desktop/mobile smoke checks: no JavaScript errors and no page-level horizontal overflow
+- **Talent Radar Prototype Polish** (`ui-flow-variants/variant-04-talent-radar.html`)
+  - Renamed and refined Variant 04 around the Talent Radar direction after user selection
+  - Added a production-grade fit-radar visual, stronger header status/action area, compact hero stats, better hover/focus states, and more polished responsive composition
+  - Verified the polished variant with Playwright desktop/mobile checks: no JavaScript errors and no page-level horizontal overflow
+- **Naukri Browser Login Restored as Optional** (`backend/api/routes/portals.py`, `backend/portals/naukri/connect.py`, `frontend/src/pages/Portals.tsx`, docs)
+  - Corrected an overly broad disable: Naukri browser login is available again from Portals, but it is optional and not required for search
+  - Changed Naukri portal status to report public search enabled while still showing saved optional login when a Naukri session exists
+  - Stopped scheduler Naukri fetch from calling `refresh_naukri_auth()`; it now uses unauthenticated public Naukri search
+  - Stopped old Naukri reconnect/error messages from routing users back into the login flow
+  - Kept Naukri public job discovery active for Jobs search and profile-based fetch
+  - Restored normal Connect API behavior and changed login launch order back to bundled Playwright Chromium first, with installed Chrome only as fallback
+- **Jobs/Tracker UI Polish + Seeded Visual Verification** (`frontend/src/pages/Jobs.tsx`, `frontend/src/pages/Tracker.tsx`, `frontend/src/components/StatusPill.tsx`, `backend/scripts/ui_e2e_smoke.py`, `docs/context/progress-tracker.md`)
+  - Tightened the Jobs screen around one professional search workbench, segmented Recommended / All results tabs, compact result rows, and a cleaner selected-match panel
+  - Updated user-facing status labels so persisted states like `external_pending` and `needs_review` render as product copy such as **Portal pending** and **Needs review**
+  - Reworked Tracker into stage tabs, compact rows, portal/status filters, and a clearer portal-pending confirmation panel with **Open portal**, **I applied**, and **Could not apply**
+  - Removed several small nested fact cards from Jobs/Tracker detail panels and replaced them with lighter scan rows
+  - Hardened the UI E2E smoke harness so final screenshots wait for live-data idle and portal popup close timing no longer prints noisy post-pass exceptions
+  - Verified `npm run build`, `python -m py_compile backend/scripts/ui_e2e_smoke.py`, and seeded Playwright UI passes for Jobs-only and Tracker portal-pending flows
+- **Naukri CAPTCHA-Safe Public Search** (`backend/services/job_discovery.py`, `frontend/src/api/client.ts`, `docs/context/progress-tracker.md`)
+  - Changed manual/profile Naukri discovery so it no longer requires `portal_tokens` or a logged-in Naukri browser session before fetching jobs
+  - Search now creates a clean unauthenticated `NaukriAuthClient` and uses the existing public job-search request path; CAPTCHA-heavy guided login is no longer a gate for the wrapper MVP
+  - Kept Naukri Connect/status code in place for future authenticated/native flows, but normal MVP search remains portal-first and public
+  - Updated timeout copy so users are not told to reconnect Naukri for normal public-search delays
+  - Verified live public search without relying on Naukri login: `frontend developer` / `Pune` fetched 3 jobs and saved/scored 3 matches; saved-profile search with blank query fetched 3 jobs and saved/scored 3 matches
+- **Naukri Session Hardening Verifier** (`backend/scripts/naukri_session_check.py`, `frontend/src/pages/Portals.tsx`, `docs/context/progress-tracker.md`)
+  - Added a focused local checker for the durable Naukri browser-session model; it resolves the Hunter user, loads the saved Naukri row, opens the saved browser profile headlessly, reports whether auth came from the browser profile or stored DB token, and writes a token-free report under `backend/test-artifacts/naukri-session/`
+  - Added an optional expired-token simulation that replaces only `portal_tokens.bearer_token` with a dummy value, checks status, and restores the original row in a `finally` block
+  - Ran the checker against current data: the row exists and `chrome_profile_path` is user-scoped, but refresh source is still `stored_db_token` and status is `expired` / `requires_reconnect=True`
+  - Ran the simulated expired-token check and confirmed the original row was restored; because the browser profile is not currently logged in, the simulated status correctly stayed `expired`
+  - Updated the Portals UI label so Naukri appears as a browser-session connection instead of a plain token connection
+- **Naukri Connect Waiting-State Fix** (`backend/portals/naukri/connect.py`, `frontend/src/pages/Portals.tsx`, `docs/context/progress-tracker.md`)
+  - Added a 30-second profile-lock timeout so Connect fails clearly if a previous Naukri browser/profile operation is still holding the user-scoped profile
+  - Added a 45-second browser-launch timeout and Google Chrome fallback so a missing/mismatched Playwright Chromium install no longer leaves the UI waiting indefinitely
+  - Changed the Portals row to show the actual backend connect message and distinguish "Launching browser" from "Waiting for login"
+  - Verified `python -m py_compile backend\portals\naukri\connect.py`, `npm run build`, and `git diff --check` pass
+- **Naukri Browser-Profile Refresh Removed from Normal Search** (`backend/portals/naukri/connect.py`, `docs/context/progress-tracker.md`)
+  - Earlier automatic browser-profile refresh work is no longer part of the normal MVP search path because Naukri login in automation-managed browsers can trigger repeated CAPTCHA
+  - Do not ask users to reconnect Naukri for normal Jobs search; use the public Naukri search path and open original job URLs for manual portal completion
+  - Keep Naukri browser login available as optional setup from Portals, not as a search prerequisite
+- **Fresh Onboarding Base E2E** (`frontend/src/pages/Auth.tsx`, `backend/api/routes/auth.py`, `backend/ai/resume_parser.py`, `backend/scripts/fresh_onboarding_e2e.py`, `backend/scripts/ui_e2e_smoke.py`, `backend/requirements.txt`, `.gitignore`, `docs/context/progress-tracker.md`)
+  - Added first-run routing after successful sign-in: users with no parsed resume or saved profile preferences now land on `/onboarding`; complete users continue to Dashboard
+  - Updated registration to return an access token when Supabase email confirmation is disabled, while preserving the email-confirmation message when confirmation is required
+  - Added a conservative local resume-parse fallback so onboarding can still extract basic resume data when the configured AI provider/key is unavailable
+  - Added a fresh-user Playwright E2E harness that creates a disposable confirmed Supabase user, signs in through the UI, uploads a synthetic PDF resume, saves profile-first preferences, verifies resume/preferences APIs, opens Jobs, records artifacts, and cleans up the generated auth user
+  - Stopped E2E scripts from forcing the project-local Playwright browser cache by default because the local Python Playwright revision uses the standard `%LOCALAPPDATA%\ms-playwright` cache
+  - Verified `python -m py_compile backend\api\routes\auth.py backend\ai\resume_parser.py backend\scripts\fresh_onboarding_e2e.py backend\scripts\ui_e2e_smoke.py`, `npm run build`, and the fresh onboarding E2E pass
+- **Playwright UI E2E Verification + Search Stabilization** (`frontend/src/App.tsx`, `frontend/src/api/client.ts`, `backend/ai/job_scorer.py`, `backend/services/job_discovery.py`, `backend/api/routes/jobs.py`, `backend/scripts/ui_e2e_smoke.py`)
+  - Ran the Playwright UI smoke with the real Hunter login and a safe seeded match: login, Jobs navigation, All results, target selection, Open portal, portal tab open, Tracker portal-pending view, Could not apply confirmation, seed cleanup, and auto-sync verification all passed
+  - Ran the Playwright UI search-only pass against real Naukri search for `frontend developer`: the UI submitted search, backend fetched 40 jobs, saved 39 scored matches, and returned successfully without opening or mutating real portal tasks
+  - Fixed App-level live-data refresh after login by keying live-data, portal-health, and auto-sync effects on route changes so an app mounted before auth can load data immediately after sign-in
+  - Changed interactive manual search to use fast deterministic resume/profile scoring while leaving scheduler/deeper scoring behavior separate, making live UI search practical for E2E and normal use
+  - Extended frontend/backend/manual-search test timeouts to match real Naukri search duration and hardened the Playwright harness selectors/artifacts
+- **Playwright UI E2E Harness** (`backend/scripts/ui_e2e_smoke.py`)
+  - Added a Python Playwright smoke script that logs into Hunter through the UI, navigates Dashboard/Jobs/Tracker, runs optional manual search, clicks Open portal, verifies portal-pending tracking, and observes auto-sync API calls
+  - Added optional seeded-match mode so portal/tracker confirmation can be tested safely without falsifying a real job outcome
+  - Added API-call classification to prove auto-sync stays on read-only endpoints and does not call search/open-portal/apply during the auto-sync wait window
+  - Verified the script compiles and fails cleanly at the credential gate when no test login is configured
+- **Safe Auto Sync Refresh** (`frontend/src/App.tsx`, `frontend/src/components/AppShell.tsx`, `frontend/src/pages/Dashboard.tsx`, docs)
+  - Added a guarded auto-sync loop that refreshes persisted job matches and Tracker applications every minute while the authenticated app is visible
+  - Kept auto-sync read-only: it does not run job search, open portals, submit applications, or call dormant portal automation
+  - Added in-flight guards and busy-state skips so auto-sync does not overlap a manual search, portal-open flow, or another live refresh
+  - Reduced portal health refresh to the safe sync path with a 10-minute cadence and preserved manual click-to-refresh from the header
+  - Changed the top-bar control from a manual Sync mental model to an Auto sync status/refresh control
+- **Jobs UI Declutter Pass** (`frontend/src/components/AppShell.tsx`, `frontend/src/pages/Jobs.tsx`)
+  - Hid the global header search on the Jobs route so the dedicated Jobs search workbench is the only primary search surface
+  - Replaced the stacked Recommended + All results layout with a segmented Recommended / All results view and compact inline filters
+  - Removed the status-pill band, oversized metric card, recommended card grid, and fake AI-fit bars to make the Jobs screen quieter and easier to scan
+  - Compressed search controls, result rows, and selected-job details while preserving portal-open, tailor, skip, recommendation labels, and score visibility
+- **Search-First Results + Recommendation Layer** (`backend/services/job_discovery.py`, `backend/api/routes/jobs.py`, `backend/scheduler/daily_fetch.py`, `backend/ai/job_scorer.py`, `frontend/src/App.tsx`, `frontend/src/components/AppShell.tsx`, `frontend/src/pages/Jobs.tsx`, `frontend/src/api/mappers.ts`, `frontend/src/types.ts`)
+  - Changed manual search so it can fetch and display jobs even when resume parsing or saved preferences are missing; if no query/profile exists, it falls back to the default software-developer search
+  - Stopped saved preferences from hiding fetched jobs; preferences now contribute recommendation context while all search results remain visible unless a company is explicitly avoided
+  - Added recommendation metadata (`resume_and_preferences`, `resume`, `preferences`, or `search`) to live search and persisted match responses
+  - Added a dedicated Jobs search workbench with role, location, and recommendation-threshold controls, plus separate Recommended jobs and All search results sections
+- **Manual Search Scoring Visibility Fix** (`backend/ai/job_scorer.py`, `backend/ai/llm_client.py`, `backend/services/job_discovery.py`, `backend/test_manual_search.py`, `frontend/src/App.tsx`, `frontend/src/pages/Jobs.tsx`)
+  - Added a deterministic resume/job keyword scorer fallback so manual search does not silently return zero matches when the configured AI provider/model is unavailable
+  - Changed manual search to persist the scored review queue even below the recommendation threshold, while still reporting how many jobs are recommended at the configured minimum score
+  - Increased the manual scoring cap to 40 fetched jobs and changed the Jobs page default score filter to 0 so users can inspect every scored result and raise the threshold themselves
+- **Local Dev CORS/Login Host Fix** (`backend/core/config.py`, `backend/main.py`, `frontend/src/api/client.ts`)
+  - Added `FRONTEND_ORIGINS` support and allowed both `http://localhost:3000` and `http://127.0.0.1:3000` during local development so auth preflight requests do not fail when Vite serves on `127.0.0.1`
+  - Aligned the frontend default API base URL to `http://127.0.0.1:8000` to match the documented local Vite host and avoid loopback hostname mismatches
+- **Naukri Persistent Browser Session Refresh** (`backend/portals/naukri/connect.py`, `backend/api/routes/portals.py`, `backend/services/job_discovery.py`, `backend/scheduler/daily_fetch.py`, `backend/api/routes/jobs.py`)
+  - Made guided Naukri Connect use user-scoped Playwright profile directories under `backend/chrome_profiles/naukri/{user_id}` instead of one shared Naukri browser profile
+  - Added `refresh_naukri_auth()` so status, manual search, scheduler fetch, and the dormant Naukri apply path refresh auth from the saved persistent browser profile before using the Supabase token cache
+  - Changed token persistence so Supabase is updated only when a fresh token is recovered from the browser profile; stale token hints are not re-saved as if they were refreshed
+  - Tightened portal status so a persistent-profile refresh proves connected, while an invalid DB token without a refreshable browser session returns `requires_reconnect=True`
+  - Verified the current legacy shared profile still needs one reconnect to become durable/user-scoped; the old token can still search for now, but status correctly asks for reconnect because the shared profile cannot refresh auth
+- **Preference-Based Fetch + Resume-Based Scoring** (`backend/services/job_discovery.py`, `backend/scheduler/daily_fetch.py`, `backend/api/routes/preferences.py`, `frontend/`, `backend/migrations/005_profile_matching_preferences.sql`)
+  - Added `preferences.skills` migration/API support so user-declared skills can drive discovery alongside job titles, locations, work type, salary, experience, and avoid-list
+  - Changed manual search and scheduler semantics so saved preferences choose/focus fetched jobs, while the parsed resume remains the source for AI score, matched skills, missing skills, and reasons
+  - Updated the app shell search to run "Find from profile" with an empty query and treat typed text as a one-time role override
+  - Added profile skills to Onboarding and Settings and updated copy to distinguish fetching preferences from resume scoring
+- **Assist-Only Wrapper MVP Pivot** (`backend/api/routes/jobs.py`, `backend/services/job_discovery.py`, `frontend/`, docs)
+  - Implemented real `GET /api/jobs/matches` so curated matches load from Supabase instead of an empty stub
+  - Changed manual search to score and save matches into `jobs` + `job_matches`
+  - Added `POST /api/jobs/{match_id}/open-portal` and `POST /api/jobs/open-portal-snapshot` to create/update `external_pending` portal tasks without calling portal submit automation
+  - Made the legacy `/api/jobs/{match_id}/apply` and `/api/jobs/apply-snapshot` routes behave as portal-open compatibility paths for the assist-only MVP
+  - Updated Dashboard, Jobs, Tracker, Settings, Onboarding, and Home copy/actions from Apply-now automation to Open portal / Portal pending / user-confirmed outcomes
+  - Kept SafeApplyManager and portal apply handlers in the repo as dormant future automation internals, but removed broad auto-submit from the MVP user flow
 - **Core Backend Setup** (`docs/feature-specs/02-core-backend-setup.md`)
   - Added FastAPI app entrypoint at `backend/main.py` with CORS and `/health`
   - Added environment config in `backend/core/config.py`
@@ -265,34 +443,170 @@ Update this file after every meaningful implementation change.
   - Verified `python backend\test_tailored_resume_service.py` and `python -m compileall backend\services\tailored_resume_service.py backend\api\routes\jobs.py` pass
 - **Tailored Resume Live Verification**
   - User confirmed the regenerated Tailor flow now downloads a proper tailored resume DOCX with expected content and filename behavior
+- **Tailored Artifact Approval UI State** (`frontend/src/App.tsx`, `frontend/src/types.ts`, `frontend/src/api/mappers.ts`, `frontend/src/pages/Dashboard.tsx`, `frontend/src/pages/Jobs.tsx`, `frontend/src/components/TailorModal.tsx`, `frontend/src/data/mockData.ts`)
+  - Added `tailoredResumeApproved` and `tailoredResumeVersion` to frontend job match state
+  - Refreshed live job data after approving a tailored draft so Dashboard/Jobs can show the attached resume version
+  - Updated Dashboard and Jobs to show base-vs-tailored resume readiness instead of hiding the result of Tailor approval
+  - Verified `npm run build` passes
+- **Seed Apply Now Test Skipped** (`docs/feature-specs/13-api-routes.md`, `docs/feature-specs/11-safe-apply-manager.md`, `docs/context/progress-tracker.md`)
+  - Decided not to implement seed-specific Apply now blocker logic because seed rows are development fixtures and will be cleared before production
+  - Updated docs to use the seed only for UI, approve, tailor, and tailored-resume approval verification
+  - Apply now failure/blocked logging should be verified with a real selected job and explicit user approval, or with a dedicated backend test that mocks portal apply behavior
+- **Guided Naukri Connect Flow** (`backend/portals/naukri/connect.py`, `backend/api/routes/portals.py`, `frontend/src/api/client.ts`, `frontend/src/pages/Portals.tsx`, `docs/feature-specs/03-naukri-portal.md`, `docs/feature-specs/13-api-routes.md`, `docs/feature-specs/14-react-frontend.md`, `docs/context/architecture.md`)
+  - Added backend-managed Playwright Naukri connection capture that opens a visible login browser, watches auth headers/login responses/`nauk_at` cookie, resolves the profile ID, and saves the captured token/profile directly to `portal_tokens`
+  - Added `POST /api/portals/naukri/connect/start` and `GET /api/portals/naukri/connect/status` so the frontend can start and poll guided login without ever receiving the Bearer token
+  - Updated the Portals page so Naukri **Connect** starts guided setup, shows a waiting state while login is in progress, refreshes portal status after success, and moves token/profile fields into **Advanced manual setup**
+  - Documented guided Naukri Connect as the primary user flow and manual token entry as an advanced fallback
+  - Verified `python -m compileall backend\portals\naukri\connect.py backend\api\routes\portals.py` and `npm run build` pass
+- **Guided Naukri Connect Windows Runtime Fix** (`backend/portals/naukri/connect.py`)
+  - Moved Playwright capture from the FastAPI event loop into a dedicated daemon thread with a Windows Proactor event-loop policy so Playwright can spawn its browser driver on Windows
+  - Improved blank low-level Playwright failure messages to include the exception class name
+  - Verified `.venv\Scripts\python.exe -m compileall backend\portals\naukri\connect.py backend\api\routes\portals.py` passes
+- **Guided Naukri Connect Live Verification**
+  - User confirmed Naukri **Connect** completed successfully from the Portals page and Hunter saved the token/profile id automatically
+  - Updated the Portals UI to hide the raw captured profile id and show a user-friendly **Profile captured** label after connection
+- **Naukri Search-Sourced Match Verification** (`backend/portals/naukri/connect.py`, `backend/scheduler/daily_fetch.py`, `backend/api/routes/jobs.py`)
+  - Diagnosed scheduler output where Naukri recommended jobs returned 401 while the captured token still worked for dashboard and job search
+  - Added browser-profile-aware Naukri auth hydration for scheduler/apply paths and split Naukri recommended/search fetches so a recommended endpoint 401 no longer blocks search
+  - Verified saved token shape without printing secrets: dashboard endpoint returned 200, recommended endpoint returned 401, and search endpoint returned 200
+  - Verified `RUN_SCHEDULER_FULL=1 .\.venv\Scripts\python.exe backend\test_scheduler.py` increased matches from 1 to 2
+  - Confirmed the new match is a real Naukri row: `Web Developer` at `Accenture`, score `65`, status `pending`
+- **Live Sync Button Wiring** (`frontend/src/App.tsx`, `frontend/src/components/AppShell.tsx`)
+  - Fixed the top-bar **Sync** button so it now calls the live data refresh function instead of only showing a cosmetic synced state
+  - Verified `npm run build` passes
+- **Real Naukri Apply State Verification + UI Refresh Fix** (`frontend/src/App.tsx`, `frontend/src/components/AppShell.tsx`)
+  - Verified the real Naukri `Web Developer` at `Accenture` match is `status='applied'` in `job_matches`
+  - Verified an `applications` row exists with `status='applied'`, portal `naukri`, and the Naukri success message recorded in `portal_response`/notes
+  - Fixed Apply now frontend refresh timing by polling live data at 1.5s, 4s, 8s, and 15s after the backend apply starts
+  - Changed the top-bar **Ready** button to navigate to Jobs instead of Tracker because it counts approved/ready matches, not applied application records
+  - Verified `npm run build` passes
+- **Manual Job Search Spec** (`docs/feature-specs/17-manual-job-search.md`, `docs/feature-specs/13-api-routes.md`, `docs/feature-specs/14-react-frontend.md`)
+  - Added a dedicated Manual Job Search spec that separates user-triggered search from the daily scheduler
+  - Documented `POST /api/jobs/search` request/response shape, blockers, caps, and frontend behavior
+  - Added recommended `manual_search_runs` and `job_matches.search_source/search_query/search_run_id` database metadata
+  - Updated architecture, scheduler, Naukri, UI, and product docs so top-bar search means immediate fetch/score/save and never apply
+  - Used Traverser25/NopeRi as the Naukri reference for `/jobapi/v3/search`, `nkparam`, and search-run configuration guidance
+- **Manual Job Search Implementation** (`backend/services/job_discovery.py`, `backend/api/routes/jobs.py`, `backend/migrations/003_manual_job_search.sql`, `backend/test_manual_search.py`, `frontend/src/App.tsx`, `frontend/src/components/AppShell.tsx`, `frontend/src/api/client.ts`)
+  - Added shared job discovery service for manual/scheduler scoring and match upsert behavior
+  - Added `POST /api/jobs/search` with query validation, Naukri connection checks, duplicate-search guard, and safe HTTP errors for missing resume/portal setup
+  - Added Naukri search options for result count and freshness while preserving scheduler defaults
+  - Added migration `003_manual_job_search.sql` for `manual_search_runs` plus match search metadata
+  - Wired the app-shell search field to call the manual search API, navigate to Jobs, show searching/summary states, and refresh live data
+  - Verified live backend manual search with `RUN_MANUAL_SEARCH_FULL=1`: fetched 5 Naukri jobs, scored them, and saved 2 matches without applying
+- **Manual Search Loader UX** (`frontend/src/App.tsx`, `frontend/src/components/AppShell.tsx`, `frontend/src/styles.css`)
+  - Added a live-search progress banner with spinner, moving progress rail, and Connect/Fetch/Score/Save steps while manual search is running
+  - Updated the top search input to show busy styling and spinner state during active Naukri search
+  - Kept success summaries after search completion so users can see how many jobs were fetched and saved
+  - Verified `npm run build` passes
+- **Apply Outcome Visibility UX** (`frontend/src/App.tsx`, `frontend/src/components/AppShell.tsx`, `frontend/src/pages/Tracker.tsx`, `frontend/src/api/mappers.ts`, `frontend/src/types.ts`, `backend/portals/naukri/jobs.py`)
+  - Added Apply now start/result banners so the user sees applying, applied successfully, blocked, needs review, or failed states on screen
+  - Matched background apply results back to the clicked job using internal `job_id` when available
+  - Added a top-bar **Applied** shortcut that opens `Tracker` on the applied status view
+  - Updated Tracker to respect `?status=applied` and show a clearer empty state for applied jobs
+  - Converted Naukri apply 401/403 responses into a user-readable failed result; this is now superseded by the MVP portal-open flow and disabled Naukri browser login
+  - Verified `npm run build` passes and `python -m py_compile backend/portals/naukri/jobs.py` passes
+- **Proactive Portal Expiry Alerts** (`backend/api/routes/portals.py`, `backend/portals/naukri/connect.py`, `frontend/src/App.tsx`, `frontend/src/components/AppShell.tsx`, `frontend/src/pages/Portals.tsx`)
+  - Superseded for Naukri by public-search MVP behavior: normal Naukri search should not require login or reconnect
+  - Added live Naukri session validation to `/api/portals/status` without returning raw tokens
+  - Marked Naukri as `expired` with `requires_reconnect` when the dashboard health check returns 401/403
+  - Preferred fresh browser-profile `nauk_at` cookies over older saved token hints when hydrating Naukri auth for scheduler/apply paths
+  - Added a global reconnect banner and notification item when a connected portal needs re-login
+  - Added an Apply now preflight that blocks submission and asks the user to reconnect if portal health is already expired
+  - Added `?connect=naukri` support on the Portals page so reconnect prompts can open guided login directly
+  - Verified `npm run build`, `python -m py_compile backend/api/routes/portals.py backend/portals/naukri/connect.py backend/portals/naukri/jobs.py`, and `git diff --check` pass
+- **Jobs Review Ergonomics Fix** (`frontend/src/App.tsx`, `frontend/src/pages/Jobs.tsx`, `frontend/src/pages/Dashboard.tsx`, `frontend/src/pages/Tracker.tsx`, `frontend/src/api/mappers.ts`, `frontend/src/types.ts`)
+  - Added a synchronous Apply now lock plus full-page applying overlay so users cannot click Apply twice while a portal submission is running
+  - Disabled Dashboard/Jobs apply actions while another apply is in flight
+  - Cleaned HTML tags from Naukri job descriptions before rendering summaries
+  - Added `jdFullDescription` to frontend job match state and a full job-description modal from the Jobs detail rail
+  - Gave Jobs list, Jobs detail rail, and Tracker detail rail independent desktop scroll regions so long details no longer force whole-page scrolling
+  - Verified `npm run build` and `git diff --check` pass
+- **Live Frontend Verification** (`frontend/`, `backend/api/routes/jobs.py`, `backend/api/routes/portals.py`)
+  - User reported live verification passing on June 4, 2026
+  - Manual Naukri search from the app is working against the live backend/frontend flow
+  - Apply now outcome feedback and Tracker visibility are considered live-verified for the current Naukri flow
+  - Further real applications still require explicit approval for each target job
+- **Manual Search Timeout Fix** (`backend/api/routes/jobs.py`, `backend/services/job_discovery.py`, `backend/ai/llm_client.py`, `backend/portals/naukri/jobs.py`, `frontend/src/api/client.ts`)
+  - Fixed manual search getting stuck in the frontend loading state when Naukri or AI scoring stalls
+  - Added route, frontend, Naukri HTTP, and AI request timeouts
+  - Added timeout handling around the shared AI client; Anthropic fallback calls run off the event loop, while the current OpenRouter/Gemini path remains async HTTP
+  - Bounded manual-search scoring to the first 12 new jobs per request and scores up to 3 jobs concurrently
+  - Verified `python -m py_compile api\routes\jobs.py services\job_discovery.py ai\llm_client.py portals\naukri\jobs.py`, `npm run build`, `git diff --check`, and `python test_manual_search.py` pass
+- **Selected Match Action Visibility Fix** (`frontend/src/pages/Jobs.tsx`)
+  - Moved Tailor/Approve/Apply now/Skip actions directly under the selected job header so the primary action is visible without scrolling the detail rail
+  - Reworked the selected-match rail into fixed header, fixed action row, and scrollable detail body so the title and lower match info no longer get clipped
+  - Added a selected-match status pill so pending jobs clearly show why the primary action is approval first
+  - Verified `npm run build` and `git diff --check frontend\src\pages\Jobs.tsx` pass
+- **External Apply Pending Handling** (`backend/migrations/004_external_apply_pending.sql`, `backend/portals/base.py`, `backend/portals/naukri/jobs.py`, `backend/portals/foundit/jobs.py`, `backend/portals/linkedin/apply.py`, `frontend/src/pages/Jobs.tsx`, `frontend/src/pages/Tracker.tsx`)
+  - Added `external_pending` status support across backend and frontend so company-site/external apply jobs are not treated as completed applications
+  - Added migration `004_external_apply_pending.sql` for `jobs.apply_method`, `jobs.external_apply_url`, `jobs.portal_metadata`, `applications.external_apply_url`, and `applications.external_apply_confirmed_at`
+  - Updated Naukri and Foundit to default uncertain/non-native apply routes to `external_pending`; LinkedIn non-Easy-Apply now returns external pending instead of failed
+  - Hardened Workday, Greenhouse, and Taleo apply handlers so missing submit/confirmation or unsupported external forms return `external_pending` with the current URL
+  - Updated SafeApplyManager logging/daily counts so only true completed application statuses count toward apply limits
+  - Updated Jobs and Tracker UI so external tasks show **Open company site**, **I applied**, and **Could not apply** actions
+  - Verified backend syntax checks, `python test_safe_apply_manager.py`, `npm run build`, and `git diff --check` pass
+- **External Apply UX Correction** (`backend/api/routes/jobs.py`, `frontend/src/App.tsx`, `frontend/src/pages/Jobs.tsx`, `frontend/src/pages/Dashboard.tsx`, `frontend/src/api/mappers.ts`)
+  - Moved Apply now loading state before portal-health preflight so the overlay/button state appears immediately on native apply clicks
+  - Changed approval for external/uncertain Naukri and Foundit jobs to create `external_pending` tasks directly instead of showing Apply now first
+  - Added frontend apply-method helpers so native/Easy Apply jobs show **Apply now**, while external/company-site jobs show **Open site** directly after approval
+  - Added source job URL fallback so **Open site** is not disabled when older rows do not have `jobs.external_apply_url`
+  - Marked LinkedIn search results as native Easy Apply in the parser
+  - Verified `python -m py_compile api\routes\jobs.py portals\linkedin\jobs.py`, `npm run build`, and `git diff --check` pass
+- **Manual Search Session-Only Flow** (`backend/services/job_discovery.py`, `backend/api/routes/jobs.py`, `frontend/src/App.tsx`, `frontend/src/pages/Jobs.tsx`, `frontend/src/pages/Dashboard.tsx`)
+  - Removed the manual approval gate from the current manual workflow: pending native jobs show **Apply now**, and external/company-site jobs show **Open site**
+  - Changed manual search to return scored matches without inserting every fetched/scored job into `jobs` or `job_matches`
+  - Added snapshot apply endpoint so session-only native jobs can be applied and stored only when the user actually applies
+  - Stopped `/api/jobs/matches` from returning stale saved review rows; the Jobs page now depends on the latest live search session
+  - Normalized relative portal apply URLs so Naukri paths open on `https://www.naukri.com` instead of routing inside Hunter
+  - Verified `python -m py_compile api\routes\jobs.py services\job_discovery.py test_manual_search.py`, `python test_manual_search.py`, `npm run build`, and `git diff --check` pass
+- **Naukri Native Apply Classification Fix** (`backend/portals/naukri/jobs.py`, `backend/api/routes/jobs.py`, `frontend/src/utils/jobApply.ts`)
+  - Fixed false external labels on Naukri jobs where the live Naukri page shows the normal **Apply** button
+  - Removed the fallback that treated every unknown Naukri/Foundit apply method as external
+  - Kept explicit **Apply on company site** / company-site / web-job signals as external pending
+  - Verified `python -m py_compile api\routes\jobs.py portals\naukri\jobs.py portals\foundit\jobs.py services\job_discovery.py`, `npm run build`, and `git diff --check` pass
 
 ## In Progress
 
-- **Apply/tracker verification / real match generation** is the active next implementation priority. The user ran `backend/migrations/001_mvp_live_flow_apply_modes.sql` and `backend/migrations/002_tailored_resume_artifacts.sql` successfully in Supabase SQL Editor, the React app uses backend APIs for authenticated state, the live MVP API smoke check passed, the approved seeded match remains visible with Apply now, and Tailor now generates a proper job-specific DOCX artifact.
-- Phase 1 remaining gate: real Easy Apply test is still commented in `backend/test_naukri.py` and should only be run with explicit approval on a real job through SafeApplyManager.
-- Foundit real apply remains commented until explicit approval on a real target job through SafeApplyManager.
-- Internshala real apply remains commented until the persistent browser profile has been logged in manually and explicit approval is given for a real target job through SafeApplyManager.
-- LinkedIn browser session setup has been completed by the user; live `python test_linkedin.py` search verification is still pending. Real Easy Apply remains commented until explicit approval on a real target job through SafeApplyManager.
-- Workday live `python test_workday.py` from the user's activated shell completed without crashing, but Wipro, Capgemini, and Adobe all returned 0 jobs. Direct Workday search is not live-verified yet; inspect a real Workday tenant URL/API or DOM before relying on Workday search. Real Workday apply remains commented until a real target job is selected and explicit approval is given through SafeApplyManager.
+- Naukri browser login is optional in the MVP. Current implementation keeps public search working without login and should not require Naukri Connect for Jobs search.
+- Supabase migrations `backend/migrations/003_manual_job_search.sql` and `backend/migrations/004_external_apply_pending.sql` are pending manual execution in Supabase SQL Editor.
+- Real portal-submit tests are no longer an MVP gate. Existing portal apply handlers remain dormant future automation internals and should only be exercised with explicit approval during verified-flow research.
+- LinkedIn browser session setup has been completed by the user; live `python test_linkedin.py` search verification is still pending.
+- Workday live `python test_workday.py` from the user's activated shell completed without crashing, but Wipro, Capgemini, and Adobe all returned 0 jobs. Direct Workday search is not live-verified yet; inspect a real Workday tenant URL/API or DOM before relying on Workday search.
 - Taleo is parked as future/fallback ATS support. Live `python test_taleo.py` completed without crashing, but HCL returned `net::ERR_NAME_NOT_RESOLVED` for `https://hcl.taleo.net/careersection/hcl_professional/jobsearch.ftl`; the spec URL is stale/not resolvable. Do not treat Taleo as a current blocker.
-- Greenhouse real apply remains commented/deferred until AI-generated cover letter/question answering is wired and explicit approval is given through SafeApplyManager.
-- Company portal live login/apply tests are deferred until real user-created company accounts are available and explicit approval is given through SafeApplyManager.
+- Greenhouse and company portal submit automation remains deferred/dormant until future verified-flow research.
 - AI layer live API verification is pending a valid provider key/model. Current run skipped because `ANTHROPIC_API_KEY` is missing for `AI_PROVIDER=anthropic`; OpenRouter verification is available via `AI_PROVIDER=openrouter`, `AI_MODEL=<openrouter-model-id>`, and `OPENROUTER_API_KEY`.
 - Scheduler live full-fetch verification is pending at least one stored `portal_tokens` row or active company account, user preferences, latest parsed resume, and a valid AI provider key/model.
 - Tailor endpoint live verification is still pending a seeded or real job match plus valid AI provider key/model.
 
 ## Next Up
 
-1. **Approve tailored artifact verification**: approve the generated tailored resume draft and confirm the match stores the tailored resume version for Apply now.
-2. **Apply now failure-log verification on seed**: optional only; click Apply now on the dummy seed only if intentionally testing tracker-visible blocked/failed logging, because its apply link is not a real job.
-3. **Real match generation**: connect at least one portal token/account, save preferences, upload a resume, then run the scheduler/admin fetch path so `/api/jobs/matches` contains portal-sourced rows.
-4. **Future PDF export layer**: after the DOCX/apply flow is stable, add a LaTeX/PDF compile loop for polished recruiter-facing tailored resume PDFs while keeping DOCX as the default ATS upload artifact.
-5. **Auto-apply runner**: use saved settings for daily limit, min score, allowed portals, safe window, and tailored-resume requirement; never auto-apply below the configured score threshold.
-6. **AI layer live verification**: replace invalid `ANTHROPIC_API_KEY` or configure OpenRouter (`AI_PROVIDER=openrouter`, `AI_MODEL=<model-id>`, `OPENROUTER_API_KEY`), then rerun `python test_ai_layer.py`.
-7. **Scheduler live verification**: after portal tokens/preferences/resume exist, run `RUN_SCHEDULER_FULL=1 python test_scheduler.py`.
-8. **Deferred portal real-apply checks**: run Naukri, Foundit, Internshala, LinkedIn, Workday, Greenhouse, and company portal real applies only after live wiring and apply-mode behavior are verified, with explicit user approval.
-9. **Future fallback ATS support**: revisit Taleo only when a real, working `*.taleo.net` external apply link appears.
-10. **Deploy**: after end-to-end MVP verification, prepare AWS EC2 t2.micro + Elastic IP deployment.
+1. **Fresh onboarding E2E**
+   - Base flow complete: fresh sign-in, onboarding redirect, resume upload/parse, profile preferences, Dashboard, Jobs screen, API verification, and test-user cleanup
+   - Next pass: run **Profile** search without requiring Naukri login and verify recommended/search results render with resume/profile scoring context
+2. **Production readiness**
+   - Confirm migrations `003_manual_job_search.sql`, `004_external_apply_pending.sql`, and `005_profile_matching_preferences.sql` are applied in Supabase
+   - Run deployment smoke checks for auth, preferences, resume upload, Naukri status, job matches, applications, and portal-open tracking
+   - Review env/config, CORS origins, RLS assumptions, logs, seed cleanup, and safe error messages before production-like usage
+3. **Portal expansion after MVP hardening**
+   - Add/verify Foundit next because it is the closest Naukri-style API portal
+   - Keep LinkedIn and Workday later because they are browser/ATS-driven and more brittle
+   - Continue keeping broad auto-submit dormant unless a portal flow is explicitly verified and approved
+4. **Follow-up UI QA**
+   - Revisit Jobs/Tracker density after a few real searches and user-driven portal confirmations to catch any long-title, long-location, or empty-state edge cases
+
+## Supporting Backlog
+
+1. **Apply migration 003**: run `backend/migrations/003_manual_job_search.sql` in Supabase SQL Editor to persist manual search run metadata.
+2. **Apply migration 004**: run `backend/migrations/004_external_apply_pending.sql` in Supabase SQL Editor so external apply fields/status confirmation can persist.
+3. **Seed cleanup before production**: delete seeded Hunter verification rows before production deployment or production-like apply testing.
+4. **Naukri recommended endpoint follow-up**: treat `jobapi/v2/search/recom-jobs` 401 as non-blocking while Naukri search works; revisit recommended jobs only if needed for match volume.
+5. **Future PDF export layer**: after the DOCX/apply flow is stable, add a LaTeX/PDF compile loop for polished recruiter-facing tailored resume PDFs while keeping DOCX as the default ATS upload artifact.
+6. **Portal-open verification**: after migrations 003/004, run a manual search, confirm matches persist via `/api/jobs/matches`, open a portal job, and confirm the Tracker row from `external_pending` to `applied`.
+7. **AI layer live verification**: replace invalid `ANTHROPIC_API_KEY` or configure OpenRouter (`AI_PROVIDER=openrouter`, `AI_MODEL=<model-id>`, `OPENROUTER_API_KEY`), then rerun `python test_ai_layer.py`.
+8. **Scheduler live verification**: after portal tokens/preferences/resume exist, run `RUN_SCHEDULER_FULL=1 python test_scheduler.py`.
+9. **Future verified automation research**: revisit real portal-submit only for explicit official/native flows and with user approval.
+10. **Naukri optional login hardening**: keep browser login available from Portals, but do not require it for search; avoid automatic headless refresh behavior that can re-trigger CAPTCHA.
+11. **Deploy**: after fresh-user MVP verification, prepare AWS EC2 t2.micro + Elastic IP deployment.
 
 ## Open Questions
 
@@ -313,6 +627,8 @@ Update this file after every meaningful implementation change.
 - **Nodriver over undetected-chromedriver**: Same author, newer architecture. Communicates via raw DevTools Protocol without injecting WebDriver markers. Falls back to Camoufox (Firefox, C++ level fingerprint spoofing) only if Nodriver fails.
 - **Shared `Job` dataclass in `portals/naukri/jobs.py`**: Avoids duplicating the data structure across portals. Accepted coupling; changing this dataclass requires updating all portal parsers.
 - **Mode-aware SafeApplyManager**: Every apply must run pre-apply checks and log the result. Manual Apply now should submit immediately after checks pass. Auto-apply must use SafeApplyManager throttling for safe window, daily limits, score threshold, and human-like delay between successful applies.
+- **External apply is user-confirmed, not auto-applied**: Company-site or uncertain external routes must become `external_pending` with an external URL. Hunter only marks them `applied` after the user confirms the external form was completed.
+- **Manual search is not scheduler**: The top-bar search uses `POST /api/jobs/search` with the user's explicit query and must fetch/score/save only. The APScheduler daily fetch remains background and preference-driven.
 - **APScheduler for daily fetch**: FastAPI starts one `AsyncIOScheduler` on startup and schedules `daily_job_fetch` at 8:00am IST. Manual trigger exists for admin/testing, but full fetch should only be run when DB prerequisites and AI key/model are ready.
 - **Thin route handlers**: API routes validate input, call existing portal/AI/safety modules, persist through Supabase, and return JSON. Portal tokens and company passwords are not returned in API responses.
 
@@ -320,6 +636,9 @@ Update this file after every meaningful implementation change.
 
 - Implementation plan with full code is in `docs/job-automation-implementation new.md`; reference it for exact endpoint URLs, request structures, and code for each phase.
 - MVP live flow and apply-mode guidance has been merged into the existing feature specs. Use `01-database-schema.md`, `11-safe-apply-manager.md`, `12-scheduler.md`, `13-api-routes.md`, `14-react-frontend.md`, and `14b-frontend-ux-blueprint.md` as the next-phase source of truth before returning to deferred portal real-apply checks.
+- Manual Job Search source of truth is `docs/feature-specs/17-manual-job-search.md`. Use it with `03-naukri-portal.md`, `12-scheduler.md`, `13-api-routes.md`, and `14-react-frontend.md` before implementing the top-bar search.
+- Manual search implementation is now in `backend/services/job_discovery.py` and `POST /api/jobs/search`. The code falls back gracefully if migration 003 is not applied, but `backend/migrations/003_manual_job_search.sql` should be run before production-like testing.
+- External apply handling source of truth is `backend/migrations/004_external_apply_pending.sql`, `backend/portals/base.py`, and the portal apply classifiers. Unknown or company-site apply routes should remain `external_pending` until user confirmation in Tracker.
 - Job snapshots are intentional: Hunter stores job details for review, scoring, dedupe, and tracker history, while the source portal remains the final source of truth for availability and submission.
 - Apply behavior now has two intended modes: Manual Apply now submits immediately after pre-apply checks pass; auto-apply is user-enabled and throttled by SafeApplyManager.
 - Tailored resume behavior now has a documented artifact lifecycle inspired by the reviewed `MadsLorentzen/ai-job-search` workflow pattern: draft, validate, user-review, approve, then apply with the exact approved version. Hunter will implement this with `.docx` artifacts and Supabase Storage for MVP rather than a LaTeX/PDF compile loop.

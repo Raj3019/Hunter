@@ -5,12 +5,13 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from core.auth import get_current_user_id
-from core.database import get_db
+from core.database import NULL_RESULT, get_db
 
 router = APIRouter()
 
 
 class PreferencesIn(BaseModel):
+    skills: List[str] = Field(default_factory=list)
     job_titles: List[str] = Field(default_factory=list)
     locations: List[str] = Field(default_factory=list)
     work_type: List[str] = Field(default_factory=list)
@@ -39,7 +40,13 @@ async def save_preferences(
         **body.dict(),
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
-    db.table("preferences").upsert(payload, on_conflict="user_id").execute()
+    try:
+        db.table("preferences").upsert(payload, on_conflict="user_id").execute()
+    except Exception as exc:
+        if "skills" not in str(exc).lower():
+            raise
+        payload.pop("skills", None)
+        db.table("preferences").upsert(payload, on_conflict="user_id").execute()
     return {"success": True}
 
 
@@ -49,5 +56,5 @@ async def get_preferences(user_id: str = Depends(get_current_user_id)):
     result = db.table("preferences").select("*").eq(
         "user_id",
         user_id,
-    ).maybe_single().execute()
+    ).maybe_single().execute() or NULL_RESULT
     return result.data or {}

@@ -36,9 +36,15 @@ async def register(body: AuthIn):
             "email": body.email,
             "password": body.password,
         })
-        return {
+        payload = {
             "message": "Check your email for a confirmation link",
             "user_id": result.user.id if result.user else None,
         }
+        if result.session:
+            payload.update({
+                "access_token": result.session.access_token,
+                "email": result.user.email if result.user else body.email,
+            })
+        return payload
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

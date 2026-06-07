@@ -72,7 +72,7 @@ export function Home() {
                 </div>
               </div>
               <div className="mt-4 grid grid-cols-5 gap-1 text-center text-xs text-[var(--text-muted)]">
-                {["Resume", "Prefs", "Portals", "Review", "Apply"].map((step, index) => (
+                {["Resume", "Prefs", "Portals", "Review", "Confirm"].map((step, index) => (
                   <div key={step}>
                     <div className={`mb-2 h-1.5 rounded-full ${index < 4 ? "bg-[var(--accent-primary)]" : "bg-[var(--bg-elevated)]"}`} />
                     {step}
@@ -86,8 +86,8 @@ export function Home() {
         <div className="mt-8 grid gap-3 md:grid-cols-3">
           {[
             { icon: BriefcaseBusiness, title: "Connected", body: "Naukri, Foundit, LinkedIn, Greenhouse, Workday, and company portals." },
-            { icon: ShieldCheck, title: "Apply safety", body: "Checks sessions, duplicates, limits, and apply hours before submitting." },
-            { icon: Gauge, title: "Tracker", body: "Fetched, approved, applied, interview, rejected, and archived states." },
+            { icon: ShieldCheck, title: "Portal safety", body: "Opens original portal pages and waits for your confirmation before marking applied." },
+            { icon: Gauge, title: "Tracker", body: "Fetched, portal pending, applied, interview, rejected, and archived states." },
           ].map((item) => (
             <div key={item.title} className="desk-panel rounded-lg p-4">
               <item.icon size={20} className="text-[var(--accent-primary)]" />
@@ -100,7 +100,7 @@ export function Home() {
         <div className="desk-panel mt-8 rounded-lg p-4">
           <p className="text-xs uppercase tracking-wide text-[var(--text-muted)]">Workflow</p>
           <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
-            {["Resume", "Preferences", "Portal connect", "Review", "Apply"].map((step, index) => (
+            {["Resume", "Preferences", "Portal connect", "Review", "Confirm"].map((step, index) => (
               <div key={step} className="flex items-center gap-2">
                 <span className="rounded border border-[var(--border-default)] px-2 py-1">{step}</span>
                 {index < 4 && <ArrowRight size={14} className="text-[var(--text-muted)]" />}

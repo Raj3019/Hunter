@@ -26,17 +26,21 @@ GET    /api/resume/parsed            Get latest parsed resume
 POST   /api/preferences              Save/update job preferences
 GET    /api/preferences              Get current preferences
 
+POST   /api/portals/naukri/connect/start   Start guided Naukri browser login capture
+GET    /api/portals/naukri/connect/status  Poll guided Naukri login capture status
 POST   /api/portals/naukri/token     Save Naukri Bearer token
 POST   /api/portals/foundit/token    Save Foundit Bearer token
 POST   /api/portals/linkedin/setup   Confirm LinkedIn Chrome profile ready
 GET    /api/portals/status           All portal connection states
 
 GET    /api/jobs/matches             Today's scored job matches
-POST   /api/jobs/{id}/approve        Mark match as approved (eligible for manual/auto apply)
+POST   /api/jobs/search              Manual on-demand search -> fetch, score, save matches
+POST   /api/jobs/{id}/approve        Mark match as approved
 POST   /api/jobs/{id}/skip           Mark match as skipped
 POST   /api/jobs/{id}/tailor         Generate tailored resume draft artifact for a match
-POST   /api/jobs/{id}/tailor/approve Approve a generated tailored resume draft for the next apply
-POST   /api/jobs/{id}/apply          Manual Apply now for an approved job
+POST   /api/jobs/{id}/tailor/approve Approve a generated tailored resume draft
+POST   /api/jobs/{id}/open-portal    Track portal-pending task and return source URL
+POST   /api/jobs/{id}/apply          Compatibility alias for open-portal in assist-only MVP
 
 GET    /api/applications             All application records
 PATCH  /api/applications/{id}        Update status manually
@@ -48,14 +52,95 @@ POST   /api/admin/trigger-fetch      Admin-only manual scheduler trigger
 
 ## MVP Live Flow Contracts
 
-- `POST /api/preferences` stores both matching preferences and apply settings: `auto_apply_enabled`, `auto_apply_daily_limit`, `auto_apply_min_score`, `auto_apply_allowed_portals`, `safe_apply_start_time`, `safe_apply_end_time`, and `require_tailored_resume_approval`.
-- `POST /api/jobs/{id}/apply` is Manual Apply now by default. It must run pre-apply checks and submit immediately if blockers are clear; it must not add random SafeApplyManager delay.
-- Auto-apply should run from scheduler/runner code using approved matches and user apply settings. It uses SafeApplyManager throttling and writes the same application audit records.
+- `POST /api/preferences` stores matching preferences, including user-declared skills. Auto-apply fields may remain in the schema for future verified automation, but MVP UI must save `apply_mode='manual'` and `auto_apply_enabled=false`.
+- `POST /api/jobs/search` is the user-facing Manual Job Search route. It fetches from saved preferences by default, accepts an explicit query as a one-time role override, scores results against the parsed resume, saves `job_matches`, and returns a run summary. It must not apply to any job.
+- `POST /api/jobs/{id}/open-portal` is the MVP primary action. It creates or updates an `applications.status='external_pending'` row, updates the match to `external_pending`, returns `external_apply_url`, and does not call portal apply automation.
+- `POST /api/jobs/{id}/apply` is kept only as a compatibility alias for `open-portal` during the assist-only MVP.
+- Auto-submit is dormant for MVP. Any future verified auto-submit runner must use SafeApplyManager throttling and write the same application audit records.
 - `POST /api/jobs/{id}/tailor` generates structured tailoring output plus a per-job draft resume artifact. It inserts a `tailored_resumes` row with `status='draft'` and returns the draft id, version, file URL, tailoring JSON, and validation JSON.
-- `POST /api/jobs/{id}/tailor/approve` must approve a real generated draft id. It marks the `tailored_resumes` row `approved`, copies its file URL/version to `job_matches`, and makes that artifact eligible for manual Apply now or auto-apply. Empty URL approvals are invalid.
+- `POST /api/jobs/{id}/tailor/approve` must approve a real generated draft id. It marks the `tailored_resumes` row `approved`, copies its file URL/version to `job_matches`, and makes that artifact eligible for portal-open tracking. Empty URL approvals are invalid.
 - Application records must capture `apply_mode`, `pre_apply_check`, `portal_response`, `resume_version`, `blocked_reason`, and `failed_reason` where available.
-- Backend and frontend must share these application statuses: `approved`, `applied`, `viewed`, `interview`, `offer`, `rejected`, `archived`, `blocked`, `failed`, `needs_review`.
+- Backend and frontend must share these application statuses: `approved`, `applied`, `viewed`, `interview`, `offer`, `rejected`, `archived`, `blocked`, `failed`, `needs_review`, `external_pending`.
+- Portal-open result contract:
+
+```json
+{
+  "success": true,
+  "status": "external_pending",
+  "external_pending": true,
+  "external_apply_url": "https://...",
+  "application_id": "uuid"
+}
+```
+
+- `external_pending` means Hunter opened or prepared a portal task but did not complete a real application. The route must expose the source URL so the user can continue manually.
+- `PATCH /api/applications/{id}` is the confirmation path for portal tasks. If the current status is `external_pending` and the user sets `status='applied'`, the backend sets `external_apply_confirmed_at`. If the user could not apply, the frontend may set `status='failed'` or `blocked` with notes.
 - `/api/admin/trigger-fetch` must require a valid JWT plus an admin authorization check before invoking the scheduler.
+- `POST /api/portals/naukri/connect/start` is the primary Naukri setup path. It starts a visible backend-managed, user-scoped Playwright login session and returns only connection status metadata.
+- `GET /api/portals/naukri/connect/status` returns `idle`, `starting`, `waiting_for_login`, `connected`, `failed`, or `expired`; it must never return the captured Bearer token.
+- `GET /api/portals/status` refreshes Naukri auth from the saved persistent browser profile before validating the cached token. A fresh profile token may update `portal_tokens.bearer_token`, but the token/cookies never return to the frontend.
+- `POST /api/portals/naukri/token` remains as an advanced manual fallback for development/support, not the default user flow.
+
+### Manual Job Search API Contract
+
+`POST /api/jobs/search` request:
+
+```json
+{
+  "query": "",
+  "locations": ["Bengaluru"],
+  "experience_years": 3,
+  "portals": ["naukri"],
+  "max_pages": 2,
+  "results_per_page": 20,
+  "min_score": 60,
+  "freshness_days": 30,
+  "save_as_preferences": false
+}
+```
+
+Rules:
+
+- Empty `query` is allowed if saved preferences contain at least one `job_titles` or `skills` value.
+- Omitted `locations`, `experience_years`, and `min_score` default from preferences.
+- Preferences drive job fetching/focusing; the parsed resume drives AI match score, matched skills, missing skills, and reasons.
+- MVP supports `portals: ["naukri"]`; later portals can reuse the same request shape.
+- `max_pages` must be capped at 3 and `results_per_page` at 20 for MVP.
+- The route must reject users without a parsed resume.
+- The route must reject selected portals that are not connected.
+- The route must save search-run metadata when the `manual_search_runs` migration exists.
+- The route should use shared discovery/scoring helpers also used by the scheduler.
+- The route must never return Bearer tokens, cookies, or raw portal auth headers.
+
+Success response:
+
+```json
+{
+  "success": true,
+  "run": {
+    "id": "uuid",
+    "status": "completed",
+    "query": "Frontend Engineer",
+    "portals": ["naukri"],
+    "fetched_count": 36,
+    "new_jobs_count": 18,
+    "scored_count": 18,
+    "saved_matches_count": 5,
+    "min_score": 60
+  },
+  "matches": [],
+  "warnings": []
+}
+```
+
+Failure statuses:
+
+| Status | Cause |
+| --- | --- |
+| `400` | Empty query with no saved preference title/skill, or search size exceeds caps |
+| `409` | Same user already has the same query running |
+| `422` | Parsed resume is missing |
+| `424` | Requested portal is not connected or token/session is expired |
 
 ### Tailored Resume API Contract
 
@@ -102,6 +187,8 @@ Rules:
 - Approve must fail if validation has hard blockers.
 - Apply routes must use only approved tailored artifacts. Draft artifacts stay review-only.
 - `applications.resume_version` and `applications.tailored_resume_url` must record the exact artifact used.
+
+Seed jobs are development fixtures only. They are used for UI, approve, tailor, and tailored-resume approval verification. Do not implement seed-specific Apply now behavior for production code; clear seed rows before production and verify Apply now against a real selected portal job with explicit user approval.
 
 ## Implementation Steps
 
@@ -229,6 +316,7 @@ from core.database import get_db
 router = APIRouter()
 
 class PreferencesIn(BaseModel):
+    skills: List[str] = []
     job_titles: List[str] = []
     locations: List[str] = []
     work_type: List[str] = []      # 'remote', 'hybrid', 'onsite'
@@ -495,7 +583,11 @@ async def _run_manual_apply(user_id: str, match_data: dict):
         result = await workday_apply(job, resolved_resume_path, user_profile)
 
     manager.log_application(user_id, job, result)
-    final_status = "applied" if result.get("success") else "failed"
+    final_status = (
+        "applied" if result.get("success") else
+        "external_pending" if result.get("external_pending") else
+        "failed"
+    )
     manager.update_job_match_status(user_id, job.job_id, final_status)
 ```
 
@@ -522,6 +614,7 @@ VALID_STATUSES = {
     "blocked",
     "failed",
     "needs_review",
+    "external_pending",
 }
 
 class StatusUpdate(BaseModel):
@@ -532,7 +625,7 @@ class StatusUpdate(BaseModel):
 async def get_applications(user_id: str = Depends(get_current_user_id)):
     db = get_db()
     result = db.table("applications").select(
-        "*, jobs(title, company, location, portal, apply_link)"
+        "*, jobs(title, company, location, portal, apply_link, external_apply_url)"
     ).eq("user_id", user_id).order("applied_at", desc=True).execute()
     return {"applications": result.data or []}
 
@@ -604,7 +697,7 @@ curl http://localhost:8000/api/resume/parsed -H "Authorization: Bearer $TOKEN"
 # Save preferences
 curl -X POST http://localhost:8000/api/preferences \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"job_titles":["React Developer"],"locations":["Bangalore"],"experience_years":2}'
+  -d '{"skills":["React","TypeScript"],"job_titles":["React Developer"],"locations":["Bangalore"],"experience_years":2}'
 
 # Get portal status
 curl http://localhost:8000/api/portals/status -H "Authorization: Bearer $TOKEN"
@@ -640,6 +733,7 @@ Check FastAPI auto-docs at: `http://localhost:8000/docs`
 | `422 Unprocessable Entity` | Request body missing required field | Check request body against Pydantic model |
 | Apply started but no result in Tracker | Background task failed before logging | Check server logs for errors in `_run_manual_apply`; every failure should create an application row with `failed_reason` |
 | `status not in VALID_STATUSES` | Frontend sending wrong status string | Align frontend status values with `VALID_STATUSES` set |
+| External job appears as applied | Portal returned or route mapped an external/company-site flow as success | Return `external_pending`, store `external_apply_url`, and require user confirmation before setting `applied` |
 
 ## Challenges
 

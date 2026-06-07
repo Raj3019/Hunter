@@ -157,6 +157,27 @@ def test_log_application_writes_expected_record():
     print("[PASS] Application log record structure correct")
 
 
+def test_log_application_writes_external_pending_record():
+    db = MagicMock()
+    with patch("portals.base.get_db", return_value=db):
+        manager = SafeApplyManager()
+
+    result = {
+        "success": False,
+        "external_pending": True,
+        "reason": "This job must be completed on the company website.",
+        "external_apply_url": "https://company.example/apply",
+    }
+    with patch.object(manager, "_get_or_create_db_job_id", return_value="db-job-uuid"):
+        manager.log_application("user-123", _sample_job(), result)
+
+    inserted = db.table.return_value.insert.call_args.args[0]
+    assert inserted["status"] == "external_pending"
+    assert inserted["external_apply_url"] == "https://company.example/apply"
+    assert inserted["failed_reason"] == ""
+    print("[PASS] External pending application is logged without false failure/applied state")
+
+
 def test_naukri_apply_response_is_success():
     manager = _manager()
     result = {
@@ -210,6 +231,29 @@ async def test_run_safe_apply_logs_updates_and_delays():
     print("[PASS] Safe apply runner logs, updates status, and delays on success")
 
 
+async def test_run_safe_apply_marks_external_pending_without_delay():
+    manager = _manager()
+    job = _sample_job()
+
+    with patch.object(manager, "can_apply", return_value=(True, "ok")):
+        with patch.object(manager, "log_application") as log_application:
+            with patch.object(manager, "update_job_match_status") as update_status:
+                with patch.object(manager, "safe_delay") as safe_delay:
+                    with patch.object(manager, "_get_or_create_db_job_id", return_value="db-job-uuid"):
+                        result = await run_safe_apply_for_user(
+                            "user-123",
+                            job,
+                            lambda: {"success": False, "external_pending": True},
+                            manager=manager,
+                        )
+
+    assert result["external_pending"] is True
+    log_application.assert_called_once()
+    update_status.assert_called_once_with("user-123", "db-job-uuid", "external_pending")
+    safe_delay.assert_not_called()
+    print("[PASS] Safe apply runner marks external pending without success delay")
+
+
 if __name__ == "__main__":
     import asyncio
 
@@ -224,7 +268,9 @@ if __name__ == "__main__":
     test_delay_is_in_range()
     test_today_stats_structure()
     test_log_application_writes_expected_record()
+    test_log_application_writes_external_pending_record()
     test_naukri_apply_response_is_success()
     asyncio.run(test_run_safe_apply_blocks_before_callable())
     asyncio.run(test_run_safe_apply_logs_updates_and_delays())
+    asyncio.run(test_run_safe_apply_marks_external_pending_without_delay())
     print("\n=== All SafeApplyManager tests PASSED ===")

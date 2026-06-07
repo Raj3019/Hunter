@@ -102,6 +102,7 @@ def register() -> None:
 
 def save_preferences(headers: dict[str, str]) -> None:
     payload = {
+        "skills": ["React", "TypeScript", "Python", "FastAPI"],
         "job_titles": ["Frontend Engineer", "React Developer"],
         "locations": ["Bengaluru", "Remote India"],
         "work_type": ["remote", "hybrid"],

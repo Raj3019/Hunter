@@ -50,8 +50,15 @@ async def taleo_apply(job: Job, resume_path: str, user_profile: dict) -> dict:
                     continue
 
             if not clicked:
+                external_url = page.url
                 await browser.close()
-                return {"success": False, "reason": "No Apply button found - may require account login"}
+                return {
+                    "success": False,
+                    "external_pending": True,
+                    "apply_method": "external",
+                    "reason": "No supported Taleo Apply button was found. Complete this job manually on the company site.",
+                    "external_apply_url": external_url,
+                }
 
             for step in range(12):
                 await page.wait_for_timeout(2000)
@@ -113,16 +120,33 @@ async def taleo_apply(job: Job, resume_path: str, user_profile: dict) -> dict:
                 if submit:
                     await submit.click()
                     await page.wait_for_timeout(3000)
+                    success_el = await _find_success_indicator(page)
+                    final_url = page.url
                     await browser.close()
-                    return {"success": True}
+                    if success_el:
+                        return {"success": True}
+                    return {
+                        "success": False,
+                        "external_pending": True,
+                        "apply_method": "external",
+                        "reason": "Taleo submission needs manual confirmation. Open the company site and confirm whether the application completed.",
+                        "external_apply_url": final_url,
+                    }
                 if next_btn:
                     await next_btn.click()
                 else:
                     logger.warning("[Taleo] No navigation at step %s", step + 1)
                     break
 
+            external_url = page.url
             await browser.close()
-            return {"success": False, "reason": "Could not complete Taleo form"}
+            return {
+                "success": False,
+                "external_pending": True,
+                "apply_method": "external",
+                "reason": "Could not complete the Taleo form automatically. Continue manually on the company site.",
+                "external_apply_url": external_url,
+            }
 
         except Exception as e:
             try:
@@ -130,3 +154,19 @@ async def taleo_apply(job: Job, resume_path: str, user_profile: dict) -> dict:
             except Exception:
                 pass
             return {"success": False, "reason": str(e)}
+
+
+async def _find_success_indicator(page):
+    for selector in (
+        "text=/application submitted/i",
+        "text=/thank you/i",
+        "text=/successfully submitted/i",
+        "text=/application complete/i",
+    ):
+        try:
+            indicator = await page.query_selector(selector)
+            if indicator:
+                return indicator
+        except Exception:
+            continue
+    return None

@@ -3,7 +3,7 @@ import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from core.database import get_db
+from core.database import NULL_RESULT, get_db
 
 logger = logging.getLogger(__name__)
 IST = ZoneInfo("Asia/Kolkata")
@@ -14,9 +14,9 @@ async def daily_job_fetch():
     """
     Main scheduled task. Runs at 8am IST daily.
     For each active user:
-      1. Load their resume + preferences
-      2. Search all connected portals
-      3. Score each job with AI
+      1. Load their preferences + latest resume
+      2. Search connected portals from saved preferences
+      3. Score each fetched job against the resume with AI
       4. Save matches with score >= 60 to job_matches
     """
     logger.info(
@@ -55,7 +55,7 @@ def _get_active_users(db) -> list:
 
     users = []
     for uid in user_ids:
-        profile = db.table("profiles").select("*").eq("id", uid).maybe_single().execute()
+        profile = db.table("profiles").select("*").eq("id", uid).maybe_single().execute() or NULL_RESULT
         if profile.data:
             users.append(profile.data)
     return users
@@ -68,7 +68,7 @@ async def _process_user(db, user: dict):
     prefs_result = db.table("preferences").select("*").eq(
         "user_id",
         user_id,
-    ).maybe_single().execute()
+    ).maybe_single().execute() or NULL_RESULT
     if not prefs_result.data:
         logger.info("[Scheduler] User %s has no preferences set - skipping", user_id)
         return
@@ -77,7 +77,7 @@ async def _process_user(db, user: dict):
     resume_result = db.table("resumes").select("parsed_data, raw_text").eq(
         "user_id",
         user_id,
-    ).order("created_at", desc=True).limit(1).maybe_single().execute()
+    ).order("created_at", desc=True).limit(1).maybe_single().execute() or NULL_RESULT
     if not resume_result.data or not resume_result.data.get("parsed_data"):
         logger.info("[Scheduler] User %s has no parsed resume - skipping", user_id)
         return
@@ -93,44 +93,39 @@ async def _process_user(db, user: dict):
     if not all_jobs:
         return
 
+    from services.job_discovery import _filter_jobs_by_preferences, _scoring_context, score_and_save_matches
+
     existing_job_ids = _get_existing_job_ids(db, user_id)
-    new_jobs = [job for job in all_jobs if _job_key(job) not in existing_job_ids]
+    warnings: list[str] = []
+    scheduler_request = _scheduler_request_from_preferences(prefs)
+    preference_jobs = _filter_jobs_by_preferences(all_jobs, scheduler_request, warnings)
+    new_jobs = [job for job in preference_jobs if _job_key(job) not in existing_job_ids]
     logger.info(
-        "[Scheduler] User %s: %s new jobs after deduplication",
+        "[Scheduler] User %s: %s preference-matched jobs, %s new after deduplication",
         user_id,
+        len(preference_jobs),
         len(new_jobs),
     )
-
-    from ai.job_scorer import score_job
-
-    saved_count = 0
-    for job in new_jobs:
-        try:
-            job_dict = _job_to_dict(job)
-            db_job_id = _upsert_job(db, job_dict)
-            if not db_job_id:
-                continue
-
-            score_result = await score_job(resume, job_dict)
-            if int(score_result.get("score", 0)) >= MATCH_THRESHOLD:
-                db.table("job_matches").upsert({
-                    "user_id": user_id,
-                    "job_id": db_job_id,
-                    "match_score": score_result["score"],
-                    "match_reasons": score_result.get("reasons", []),
-                    "matched_skills": score_result.get("matched_skills", []),
-                    "missing_skills": score_result.get("missing_skills", []),
-                    "status": "pending",
-                }, on_conflict="user_id,job_id").execute()
-                saved_count += 1
-        except Exception as exc:
-            logger.warning("[Scheduler] Error scoring job %s: %s", _job_key(job), exc)
-            continue
+    saved_matches = await score_and_save_matches(
+        db,
+        user_id=user_id,
+        resume=resume,
+        jobs=new_jobs,
+        min_score=MATCH_THRESHOLD,
+        source="scheduler",
+        search_run_id="",
+        search_query=_primary_value(prefs.get("job_titles") or prefs.get("skills"), "Software Developer"),
+        search_location=_primary_value(prefs.get("locations"), "Bangalore"),
+        warnings=warnings,
+        scoring_context=_scoring_context(scheduler_request, resume),
+    )
+    for warning in warnings:
+        logger.warning("[Scheduler] %s", warning)
 
     logger.info(
         "[Scheduler] User %s: saved %s matches with score >= %s",
         user_id,
-        saved_count,
+        len(saved_matches),
         MATCH_THRESHOLD,
     )
 
@@ -138,7 +133,7 @@ async def _process_user(db, user: dict):
 async def _fetch_all_portals(db, user_id: str, prefs: dict) -> list:
     """Fetch jobs from all portals the user has connected."""
     jobs = []
-    keywords = prefs.get("job_titles") or ["Software Developer"]
+    keywords = prefs.get("job_titles") or prefs.get("skills") or ["Software Developer"]
     locations = prefs.get("locations") or ["Bangalore"]
     experience = prefs.get("experience_years", 0) or 0
 
@@ -148,26 +143,38 @@ async def _fetch_all_portals(db, user_id: str, prefs: dict) -> list:
     tokens_result = db.table("portal_tokens").select("*").eq("user_id", user_id).execute()
     tokens = {row["portal"]: row for row in (tokens_result.data or []) if row.get("portal")}
 
-    if "naukri" in tokens and tokens["naukri"].get("bearer_token"):
-        try:
-            from portals.naukri.auth import NaukriAuthClient
-            from portals.naukri.jobs import NaukriJobClient
+    try:
+        from portals.naukri.auth import NaukriAuthClient
+        from portals.naukri.jobs import NaukriJobClient
+        from portals.naukri.session import get_valid_naukri_auth
 
-            auth = NaukriAuthClient()
-            auth.bearer_token = tokens["naukri"]["bearer_token"]
-            auth.profile_id = tokens["naukri"].get("profile_id")
-            auth.session.headers.update({"Authorization": f"Bearer {auth.bearer_token}"})
-            jc = NaukriJobClient(auth)
-            reco = jc.get_recommended_jobs()
-            searched = await jc.search_jobs(
-                keyword=keyword,
-                location=location,
-                experience=experience,
-            )
-            jobs.extend(reco + searched)
-            logger.info("[Naukri] %s recommended + %s searched", len(reco), len(searched))
-        except Exception as exc:
-            logger.error("[Scheduler] Naukri fetch failed: %s", exc)
+        # Use the durable Naukri login when connected so the daily fetch can also
+        # pull personalized recommendations; falls back to public keyword search.
+        auth = await asyncio.to_thread(get_valid_naukri_auth, user_id, tokens.get("naukri"))
+        authenticated = auth is not None
+        jc = NaukriJobClient(auth or NaukriAuthClient())
+
+        if authenticated:
+            try:
+                recommended = await asyncio.to_thread(jc.get_recommended_jobs)
+                jobs.extend(recommended)
+                logger.info("[Naukri] %s recommended (authenticated)", len(recommended))
+            except Exception as exc:
+                logger.info("[Scheduler] Naukri recommended unavailable: %s", exc)
+
+        searched = await jc.search_jobs(
+            keyword=keyword,
+            location=location,
+            experience=experience,
+        )
+        jobs.extend(searched)
+        logger.info(
+            "[Naukri] %s searched (%s)",
+            len(searched),
+            "authenticated" if authenticated else "public",
+        )
+    except Exception as exc:
+        logger.error("[Scheduler] Naukri search failed: %s", exc)
 
     if "foundit" in tokens and tokens["foundit"].get("bearer_token"):
         try:
@@ -215,8 +222,24 @@ async def _fetch_all_portals(db, user_id: str, prefs: dict) -> list:
     return jobs
 
 
+def _scheduler_request_from_preferences(prefs: dict) -> dict:
+    return {
+        "skills": prefs.get("skills") or [],
+        "work_type": prefs.get("work_type") or [],
+        "avoid_companies": [str(item).lower() for item in (prefs.get("avoid_companies") or []) if str(item).strip()],
+    }
+
+
 def _job_key(job) -> str:
     return f"{job.portal}:{job.job_id}"
+
+
+def _primary_value(value, fallback: str) -> str:
+    if isinstance(value, list) and value:
+        return str(value[0])
+    if isinstance(value, str) and value:
+        return value
+    return fallback
 
 
 def _get_existing_job_ids(db, user_id: str) -> set:
@@ -233,46 +256,3 @@ def _get_existing_job_ids(db, user_id: str) -> set:
     return {f"{row['portal']}:{row['job_id']}" for row in (jobs_result.data or [])}
 
 
-def _job_to_dict(job) -> dict:
-    return {
-        "portal": job.portal,
-        "job_id": job.job_id,
-        "title": job.title,
-        "company": job.company,
-        "location": job.location,
-        "description": job.description,
-        "salary": job.salary,
-        "experience": job.experience,
-        "tags": job.tags,
-        "apply_link": job.apply_link,
-        "posted_date": job.posted_date,
-        "is_workday": getattr(job, "is_workday", False),
-        "is_taleo": getattr(job, "is_taleo", False),
-        "has_questionnaire": getattr(job, "has_questionnaire", False),
-    }
-
-
-def _upsert_job(db, job_dict: dict) -> str | None:
-    """Insert job if it does not exist; return the DB uuid."""
-    try:
-        result = db.table("jobs").upsert(
-            job_dict,
-            on_conflict="portal,job_id",
-        ).execute()
-        if result.data:
-            return result.data[0]["id"]
-
-        existing = db.table("jobs").select("id").eq(
-            "portal",
-            job_dict["portal"],
-        ).eq("job_id", job_dict["job_id"]).limit(1).execute()
-        if existing.data:
-            return existing.data[0]["id"]
-    except Exception as exc:
-        logger.error(
-            "Failed to upsert job %s:%s: %s",
-            job_dict.get("portal"),
-            job_dict.get("job_id"),
-            exc,
-        )
-    return None

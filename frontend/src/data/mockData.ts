@@ -15,6 +15,8 @@ export const initialJobs: JobMatch[] = [
     missingSkills: ["GraphQL"],
     note: "Strong UI platform match. Tailoring should emphasize dashboard and accessibility work.",
     jdSummary: "Own React surfaces, reusable components, and customer-facing workflow quality.",
+    tailoredResumeApproved: false,
+    tailoredResumeVersion: "",
   },
   {
     id: "job-2",
@@ -30,6 +32,8 @@ export const initialJobs: JobMatch[] = [
     missingSkills: ["Kafka", "AWS ECS"],
     note: "Good backend plus frontend overlap. Apply is available because this match is approved.",
     jdSummary: "Build financial product flows across API services and frontend experiences.",
+    tailoredResumeApproved: false,
+    tailoredResumeVersion: "",
   },
   {
     id: "job-3",
@@ -45,6 +49,8 @@ export const initialJobs: JobMatch[] = [
     missingSkills: ["Selenium Grid", "Java"],
     note: "Portal account needs a one-time manual login before Hunter can apply.",
     jdSummary: "Maintain automation suites, browser testing, and regression quality gates.",
+    tailoredResumeApproved: false,
+    tailoredResumeVersion: "",
   },
   {
     id: "job-4",
@@ -60,6 +66,8 @@ export const initialJobs: JobMatch[] = [
     missingSkills: ["GraphQL"],
     note: "Strong product UI match. Tailoring should highlight component systems and customer-facing flows.",
     jdSummary: "Build high-quality payment product interfaces, reusable components, and scalable frontend workflows.",
+    tailoredResumeApproved: false,
+    tailoredResumeVersion: "",
   },
   {
     id: "job-5",
@@ -75,6 +83,8 @@ export const initialJobs: JobMatch[] = [
     missingSkills: ["Next.js", "Jest"],
     note: "Good frontend overlap with a few testing and framework gaps.",
     jdSummary: "Own React screens, API integration, and release quality for financial product workflows.",
+    tailoredResumeApproved: false,
+    tailoredResumeVersion: "",
   },
   {
     id: "job-6",
@@ -90,6 +100,8 @@ export const initialJobs: JobMatch[] = [
     missingSkills: ["Java", "Spring Boot", "SQL tuning"],
     note: "Below threshold and missing core backend stack keywords.",
     jdSummary: "Work on backend services, database-heavy product modules, and platform reliability.",
+    tailoredResumeApproved: false,
+    tailoredResumeVersion: "",
   },
   {
     id: "job-7",
@@ -105,6 +117,8 @@ export const initialJobs: JobMatch[] = [
     missingSkills: ["Azure"],
     note: "Approved after review. Ready for Hunter to apply after the quick safety check.",
     jdSummary: "Improve frontend platform reliability, component quality, and cross-team developer experience.",
+    tailoredResumeApproved: false,
+    tailoredResumeVersion: "",
   },
 ];
 

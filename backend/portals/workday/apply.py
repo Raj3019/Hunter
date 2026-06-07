@@ -43,8 +43,15 @@ async def workday_apply(job: Job, resume_path: str, user_profile: dict) -> dict:
                     continue
 
             if not clicked:
+                external_url = page.url
                 await browser.close()
-                return {"success": False, "reason": "No Apply button found on job page"}
+                return {
+                    "success": False,
+                    "external_pending": True,
+                    "apply_method": "external",
+                    "reason": "No supported Workday Apply button was found. Complete this job manually on the company site.",
+                    "external_apply_url": external_url,
+                }
 
             await page.wait_for_timeout(2500)
 
@@ -110,18 +117,51 @@ async def workday_apply(job: Job, resume_path: str, user_profile: dict) -> dict:
                 if submit_btn:
                     await submit_btn.click()
                     await page.wait_for_timeout(3000)
+                    success_el = await _find_success_indicator(page)
+                    final_url = page.url
                     await browser.close()
-                    return {"success": True}
+                    if success_el:
+                        return {"success": True}
+                    return {
+                        "success": False,
+                        "external_pending": True,
+                        "apply_method": "external",
+                        "reason": "Workday submission needs manual confirmation. Open the company site and confirm whether the application completed.",
+                        "external_apply_url": final_url,
+                    }
                 if next_btn:
                     await next_btn.click()
                 else:
                     logger.warning("Workday: no navigation button at step %s for %s", step + 1, job.title)
                     break
 
+            external_url = page.url
             await browser.close()
-            return {"success": False, "reason": "Could not complete Workday form"}
+            return {
+                "success": False,
+                "external_pending": True,
+                "apply_method": "external",
+                "reason": "Could not complete the Workday form automatically. Continue manually on the company site.",
+                "external_apply_url": external_url,
+            }
 
         except Exception as e:
             await browser.close()
             logger.error("Workday apply error for %s: %s", job.title, e)
             return {"success": False, "reason": str(e)}
+
+
+async def _find_success_indicator(page):
+    for selector in (
+        "text=/application submitted/i",
+        "text=/thank you/i",
+        "text=/successfully submitted/i",
+        "[data-automation-id*='confirmation']",
+    ):
+        try:
+            indicator = await page.query_selector(selector)
+            if indicator:
+                return indicator
+        except Exception:
+            continue
+    return None

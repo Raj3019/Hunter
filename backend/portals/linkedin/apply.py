@@ -33,7 +33,13 @@ async def linkedin_easy_apply(job: Job, user_profile: dict) -> dict:
             )
             if not easy_apply_btn:
                 await browser.close()
-                return {"success": False, "reason": "No Easy Apply button - external apply job"}
+                return {
+                    "success": False,
+                    "external_pending": True,
+                    "apply_method": "external",
+                    "reason": "This LinkedIn job does not support Easy Apply. Complete it on the external company site.",
+                    "external_apply_url": job.apply_link,
+                }
 
             await easy_apply_btn.click()
             await page.wait_for_timeout(2000)

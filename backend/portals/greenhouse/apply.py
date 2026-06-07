@@ -96,8 +96,15 @@ async def greenhouse_apply(
             )
 
             if not submit_btn:
+                external_url = page.url
                 await browser.close()
-                return {"success": False, "reason": "No submit button found - form may have changed"}
+                return {
+                    "success": False,
+                    "external_pending": True,
+                    "apply_method": "external",
+                    "reason": "No supported Greenhouse submit button was found. Complete this job manually on the company site.",
+                    "external_apply_url": external_url,
+                }
 
             await submit_btn.click()
             await page.wait_for_timeout(4000)
@@ -118,7 +125,10 @@ async def greenhouse_apply(
                 return {"success": True}
             return {
                 "success": False,
-                "reason": "Submit clicked but no confirmation found. May have succeeded - check manually.",
+                "external_pending": True,
+                "apply_method": "external",
+                "reason": "Submit clicked but no confirmation was detected. Confirm the application manually on the company site.",
+                "external_apply_url": final_url,
             }
 
         except Exception as e:

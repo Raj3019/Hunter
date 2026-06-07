@@ -32,6 +32,12 @@ SafeApplyManager exists mainly for **auto-apply** and batch automation. For a us
 
 Recommended auto-apply default window: **9am-8pm IST**.
 
+## External Apply Status
+
+`external_pending` is a first-class application state. It is used when a job requires the user to finish on a company website or unsupported external ATS. SafeApplyManager must log these records as `status='external_pending'`, store `external_apply_url` when available, and update the matching `job_matches.status` to `external_pending`. It must not mark the record as `applied` or `failed`.
+
+Daily completed-application counts include only truly completed records such as `applied`, `viewed`, `interview`, and `offer`. `external_pending` is tracked separately and should not consume the user's completed apply quota.
+
 ## Implementation Steps
 
 ### Step 1 — `backend/portals/base.py`
@@ -134,7 +140,12 @@ class SafeApplyManager:
                 "user_id": user_id,
                 "job_id": job.job_id if hasattr(job, "job_id") else str(job.get("id")),
                 "portal": job.portal if hasattr(job, "portal") else job.get("portal"),
-                "status": "applied" if result.get("success") else "failed",
+                "status": (
+                    "applied" if result.get("success") else
+                    "external_pending" if result.get("external_pending") else
+                    "failed"
+                ),
+                "external_apply_url": result.get("external_apply_url", ""),
                 "tailored_resume_url": tailored_resume_url,
                 "notes": result.get("reason", ""),
             }).execute()
@@ -183,6 +194,10 @@ class SafeApplyManager:
 
 Every apply call must run pre-apply checks and log the result. Only auto-apply must enforce the full time-window and random-delay behavior.
 
+Seed jobs are development fixtures only. Use them for UI/approval/tailoring verification, then clear them before production. Do not add production pre-apply logic that exists only to handle seed jobs.
+
+Apply now failure/blocked logging should be verified with a real selected job and explicit user approval, or with a dedicated backend test that mocks the portal apply callable.
+
 Manual Apply now pattern:
 
 ```python
@@ -206,7 +221,11 @@ async def run_manual_apply_for_user(user_id: str, job, resume_path: str, user_pr
     manager.update_job_match_status(
         user_id,
         job.job_id,
-        "applied" if result.get("success") else "failed",
+        (
+            "applied" if result.get("success") else
+            "external_pending" if result.get("external_pending") else
+            "failed"
+        ),
     )
     return result
 ```
@@ -240,7 +259,11 @@ async def run_apply_for_user(user_id: str, job, resume_path: str, user_profile: 
     manager.log_application(user_id, job, result)
 
     # 4. Update job match status
-    status = "applied" if result.get("success") else "failed"
+    status = (
+        "applied" if result.get("success") else
+        "external_pending" if result.get("external_pending") else
+        "failed"
+    )
     manager.update_job_match_status(user_id, job.job_id, status)
 
     # 5. Human-like delay before next auto-apply
@@ -332,6 +355,8 @@ if __name__ == "__main__":
 - Auto-apply `can_apply()` returns `(False, ...)` when today's count equals the portal limit
 - Auto-apply `can_apply()` returns `(True, "ok")` inside safe hours with count below limit
 - Manual Apply now runs pre-apply checks and submits immediately when blockers are clear
+- External/company-site jobs are logged as `external_pending`, not `applied` or `failed`
+- Daily completed apply counts exclude `external_pending`
 - `safe_delay("naukri")` sleeps between 30 and 90 seconds
 - `log_application()` inserts a row into the `applications` table
 - `get_today_stats()` returns a dict with `applied`, `limit`, `remaining` for each portal

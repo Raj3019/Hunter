@@ -1,8 +1,9 @@
 import axios from "axios";
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || "http://localhost:8000",
+  baseURL: import.meta.env.VITE_API_URL || "http://127.0.0.1:8000",
 });
+const MANUAL_SEARCH_TIMEOUT_MS = 180_000;
 
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem("access_token");
@@ -45,6 +46,12 @@ export const preferencesAPI = {
 
 export const portalsAPI = {
   getStatus: () => api.get("/api/portals/status"),
+  saveNaukriCredentials: (username: string, password: string) =>
+    api.post("/api/portals/naukri/credentials", { username, password }),
+  disconnectNaukri: () => api.delete("/api/portals/naukri"),
+  startNaukriConnect: () => api.post("/api/portals/naukri/connect/start"),
+  getNaukriConnectStatus: (connection_id?: string) =>
+    api.get("/api/portals/naukri/connect/status", { params: connection_id ? { connection_id } : {} }),
   saveNaukriToken: (bearer_token: string, profile_id: string) =>
     api.post("/api/portals/naukri/token", { bearer_token, profile_id }),
   saveFounditToken: (bearer_token: string, user_id_str: string) =>
@@ -54,12 +61,26 @@ export const portalsAPI = {
 
 export const jobsAPI = {
   getMatches: () => api.get("/api/jobs/matches"),
+  search: (payload: {
+    query?: string;
+    locations?: string[];
+    experience_years?: number;
+    portals?: string[];
+    max_pages?: number;
+    results_per_page?: number;
+    min_score?: number;
+    freshness_days?: number;
+    save_as_preferences?: boolean;
+  }) => api.post("/api/jobs/search", payload, { timeout: MANUAL_SEARCH_TIMEOUT_MS }),
   approve: (id: string) => api.post(`/api/jobs/${id}/approve`),
   skip: (id: string) => api.post(`/api/jobs/${id}/skip`),
   tailor: (id: string) => api.post(`/api/jobs/${id}/tailor`),
   approveTailored: (id: string, tailored_resume_id: string) =>
     api.post(`/api/jobs/${id}/tailor/approve`, { tailored_resume_id }),
+  openPortal: (id: string) => api.post(`/api/jobs/${id}/open-portal`),
+  openPortalSnapshot: (job: object) => api.post("/api/jobs/open-portal-snapshot", { job }),
   apply: (id: string) => api.post(`/api/jobs/${id}/apply`),
+  applySnapshot: (job: object) => api.post("/api/jobs/apply-snapshot", { job }),
 };
 
 export const applicationsAPI = {
@@ -78,6 +99,9 @@ export const companyAccountsAPI = {
 
 export function apiErrorMessage(error: unknown, fallback = "Something went wrong. Please try again.") {
   if (axios.isAxiosError(error)) {
+    if (error.code === "ECONNABORTED") {
+      return "Search is taking too long. Try again with a narrower query or open the portal directly if this repeats.";
+    }
     const detail = error.response?.data?.detail;
     if (typeof detail === "string") return detail;
     if (Array.isArray(detail)) return detail.map((item) => item?.msg || item?.message || String(item)).join(", ");

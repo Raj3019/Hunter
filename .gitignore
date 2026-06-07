@@ -28,6 +28,7 @@ backend/.playwright-browsers/
 .playwright-browsers/
 playwright-report/
 test-results/
+backend/test-artifacts/
 storage_state*.json
 *.har
 trace.zip
@@ -64,3 +65,8 @@ Thumbs.db
 
 
 # docs
+
+
+/ui-flow-variants
+/ui-variants
+.agents

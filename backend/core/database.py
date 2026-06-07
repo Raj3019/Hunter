@@ -2,6 +2,22 @@
 from supabase import create_client, Client
 from core.config import SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY
 
+
+class _NullResult:
+    """Stand-in for a missing row.
+
+    supabase-py 2.5 returns ``None`` (not an APIResponse) from
+    ``maybe_single().execute()`` when zero rows match, so ``result.data`` would
+    raise ``AttributeError``. Append ``or NULL_RESULT`` to such calls to get a
+    safe object whose ``.data`` is ``None``.
+    """
+
+    __slots__ = ()
+    data = None
+
+
+NULL_RESULT = _NullResult()
+
 # Frontend-facing client — respects RLS, used with user JWT
 def get_anon_client() -> Client:
     return create_client(SUPABASE_URL, SUPABASE_ANON_KEY)

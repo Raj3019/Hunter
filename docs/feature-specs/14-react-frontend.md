@@ -22,13 +22,17 @@ Before adding new UI features, wire the existing Air Workbench UI to real backen
 
 - Auth calls `/api/auth/login` and `/api/auth/register`; it must not set `demo-token`.
 - Onboarding upload calls `/api/resume/upload` and displays parsed resume data.
-- Preferences load/save through `/api/preferences`, including auto-apply settings.
-- Jobs load `/api/jobs/matches`; Approve, Skip, Tailor, Tailor approve, and Apply now call the matching job routes.
+- Preferences load/save through `/api/preferences`; MVP saves manual portal workflow settings and keeps auto-submit disabled.
+- Jobs load `/api/jobs/matches`; Skip, Tailor, Tailor approve, and Open portal call the matching job routes.
+- The app-shell/Jobs search input calls `POST /api/jobs/search` for Manual Job Search. It must not be a cosmetic text box or a local-only filter. Press Enter and the Search action should fetch, score, save, and refresh live matches.
 - Tracker loads `/api/applications` and updates statuses through `PATCH /api/applications/{id}`.
 - Portals load `/api/portals/status` and save portal/company account data through existing API helpers.
+- Naukri uses guided Connect as the primary path: `POST /api/portals/naukri/connect/start`, poll `/api/portals/naukri/connect/status`, show **Waiting** while the backend browser login is in progress, then refresh `/api/portals/status` after success.
+- Manual Naukri token/profile entry must be presented as **Advanced manual setup**, not as the default connection flow.
 - Authenticated pages must support loading, empty, error, and success states from real API responses.
-- Manual Apply now should communicate "checking and applying" rather than "queued" unless the backend actually schedules the apply for later.
-- Auto-apply controls live in Settings/Portals management and must show daily limit, min score, allowed portals, safe window, and tailored-resume requirement.
+- Open portal should communicate that Hunter is creating a Tracker task and opening the original source job page; it must not imply unattended form submission.
+- Jobs with `status='external_pending'` must show **Portal pending** and **Open portal**. Tracker must include a **Portal pending** stage with source URL, portal/source, reason, and actions for **I applied** and **Could not apply**.
+- Auto-submit controls must be hidden or disabled in MVP. Existing auto-apply settings remain dormant for future verified official/native flows.
 
 ### Step 1 — Project Setup
 
@@ -181,6 +185,17 @@ export const portalsAPI = {
 
 export const jobsAPI = {
   getMatches: () => api.get("/api/jobs/matches"),
+  search: (payload: {
+    query: string;
+    locations?: string[];
+    experience_years?: number;
+    portals?: string[];
+    max_pages?: number;
+    results_per_page?: number;
+    min_score?: number;
+    freshness_days?: number;
+    save_as_preferences?: boolean;
+  }) => api.post("/api/jobs/search", payload),
   approve: (id: string) => api.post(`/api/jobs/${id}/approve`),
   skip: (id: string) => api.post(`/api/jobs/${id}/skip`),
   tailor: (id: string) => api.post(`/api/jobs/${id}/tailor`),
@@ -493,6 +508,7 @@ npm start     # starts at localhost:3000
 # 8. Settings portal cards show connected/not-connected state
 # 9. Theme toggle switches dark/light without losing route or auth state
 # 10. Light theme has readable contrast for cards, inputs, badges, and modals
+# 11. Manual search: type `backend developer`, press Enter/Search, see searching state, then new scored matches or an actionable blocker
 
 npm run build  # must pass before declaring feature complete
 ```
@@ -503,8 +519,10 @@ npm run build  # must pass before declaring feature complete
 
 - Login → JWT stored → redirect to Dashboard
 - Dashboard loads matches sorted by score (highest first)
+- Top-bar/Jobs search runs a real manual search through `/api/jobs/search` and refreshes matches after completion
 - JobCard shows colour-coded score badge, matched skills (green), missing skills (grey)
 - Approve → button changes to "Apply Now"
+- External pending jobs show **Open company site** and remain pending until the user confirms in Tracker
 - Apply → card shows "✓ Applied" after response
 - Skip → card disappears from the list
 - Tracker Kanban has 4 columns, cards move when status buttons clicked
@@ -524,6 +542,7 @@ npm run build  # must pass before declaring feature complete
 ## Challenges
 
 - **Apply is async**: The `/api/jobs/{id}/apply` call returns immediately with "Apply started." The actual portal apply can still take time. The frontend must handle this gracefully — show a checking/applying state on the card and let the user check the Tracker for the result.
-- **Real-time updates**: After applying, the application record only appears in the Tracker after the background task completes. For MVP, the user refreshes the Tracker page. For a better UX, add polling (`setInterval` every 30s) or a WebSocket.
+- **Safe auto sync**: The app refreshes persisted matches and Tracker applications in the background while the authenticated tab is visible. This is read-only live-data refresh; it must not call job search, open portals, submit applications, or touch dormant auto-apply handlers.
+- **Manual search is not auto sync**: The Search action sends the user's query to `/api/jobs/search` and can fetch new jobs. Auto sync only refreshes already-known live data through `/api/jobs/matches`, `/api/applications`, and occasional portal status checks.
 - **Onboarding flow**: The Onboarding page (resume upload + preferences) is the first page a new user sees. After upload, show the parsed data for the user to review/correct before saving. Gate the Dashboard behind "resume uploaded + preferences set."
 - **Token expiry UX**: If the user's Naukri token expires, they need to know. The Settings page should show "⚠ Token expired" on the Naukri card with a "Reconnect" button that explains how to get a new Bearer token from DevTools.

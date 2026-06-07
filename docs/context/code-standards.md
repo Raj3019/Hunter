@@ -42,7 +42,7 @@
 - All prompts must instruct the model to return **only valid JSON** with no surrounding text. Always `json.loads(msg.content[0].text.strip())` the response.
 - Resume tailor rule: **never invent skills or experience not in the original resume**. This must appear verbatim in the prompt.
 - Validate resume tailoring output before generating or approving an artifact. If a skill, employer, date, title, certification, or claim is not grounded in the uploaded resume, block it or surface it as a warning.
-- Tailored resume drafts are per-job artifacts. Never overwrite the base uploaded resume, and never let Apply now use a draft until the user approves it.
+- Tailored resume drafts are per-job artifacts. Never overwrite the base uploaded resume, and never let portal-open tracking claim a tailored draft until the user approves it.
 - Keep AI module functions pure: they receive plain dicts/strings and return plain dicts/strings. No DB calls, no Playwright, no portal logic inside `backend/ai/`.
 
 ## Security (non-negotiable)

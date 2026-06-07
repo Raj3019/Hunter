@@ -6,6 +6,7 @@ import type { JobMatch } from "../types";
 interface TailorModalProps {
   job: JobMatch;
   onClose: () => void;
+  onApproved?: () => void | Promise<unknown>;
 }
 
 interface TailoredValidation {
@@ -24,7 +25,7 @@ interface TailoredDraft {
   validation?: TailoredValidation;
 }
 
-export function TailorModal({ job, onClose }: TailorModalProps) {
+export function TailorModal({ job, onClose, onApproved }: TailorModalProps) {
   const [loading, setLoading] = useState(false);
   const [approving, setApproving] = useState(false);
   const [error, setError] = useState("");
@@ -67,6 +68,7 @@ export function TailorModal({ job, onClose }: TailorModalProps) {
     setError("");
     try {
       await jobsAPI.approveTailored(job.id, draft.id);
+      await onApproved?.();
       onClose();
     } catch (caught) {
       setError(apiErrorMessage(caught, "Could not approve tailored resume."));

@@ -50,9 +50,9 @@ Tailwind CSS utility classes. No component library; build components from scratc
 
 ## Layout Patterns
 
-- **App shell**: Horizontal top nav only. No desktop sidebar and no icon rail. Header contains Hunter brand, Dashboard, Jobs, Tracker, Portals, Settings, Search jobs, Sync, Queue, notifications, and profile.
+- **App shell**: Horizontal top nav only. No desktop sidebar and no icon rail. Header contains Hunter brand, Dashboard, Jobs, Tracker, Portals, Settings, Manual Job Search, Auto sync, Ready, notifications, and profile.
 - **Dashboard**: Airy summary page focused on one "Next best action", plus a slim SafeApplyManager rail and quiet Pipeline/Portal health previews.
-- **Jobs**: Two-column split workbench. Left column is Review queue rows. Right column is Selected match detail with Tailor, Approve, Skip.
+- **Jobs**: Two-column split workbench. Left column is Review queue rows. Right column is Selected match detail with Tailor, Approve, Skip. Manual search summaries and blockers live above the queue.
 - **Tracker**: Stage tabs plus application rows and an in-page detail panel. Do not use a full Kanban wall.
 - **Portals/Settings**: Management tabs with row-based portal statuses and form-based account/settings sections. Avoid tile walls.
 - **Onboarding**: Top-nav app shell with a horizontal stepper: Resume, Preferences, Portals, Review.
@@ -78,11 +78,26 @@ Authenticated pages use one top navigation shell:
 
 - Hunter brand at far left
 - Horizontal page tabs: Dashboard, Jobs, Tracker, Portals, Settings
-- Search jobs input
-- Sync button with syncing/synced state
-- Queue button with count
+- Search jobs input as a real Manual Job Search command backed by `POST /api/jobs/search`
+- Auto sync status/refresh button for refreshing already-known live data
+- Ready button with count for approved/ready matches
 - Notification button
 - Profile menu
+
+Manual Job Search behavior:
+
+- Placeholder: `Find from profile, or type a role`.
+- Press Enter or click Find/Search to fetch from saved preferences, score against the resume, and save live matches.
+- Typed text acts as a one-time role override; saved preferences still supply locations, experience, work type, skills, and score defaults.
+- Show searching, success summary, empty, and blocker states.
+- Never auto-apply from search results. Search results enter the review queue.
+
+Auto sync behavior:
+
+- Refresh persisted matches and Tracker applications every minute while the authenticated app is open and visible.
+- Refresh portal health through the same safe path on a slower cadence.
+- Skip while manual search or portal-open work is active, and never trigger search, portal opening, apply, or dormant auto-submit handlers.
+- Keep a click-to-refresh affordance in the header for immediate read-only refresh.
 
 ### JobRow And Selected Match
 

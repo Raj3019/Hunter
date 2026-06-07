@@ -34,7 +34,7 @@ Reference patterns:
 - Use the app shell for all authenticated pages: horizontal top navigation, command/status controls, and full-width content area.
 - Do not use a desktop sidebar or icon rail in the final Air Workbench design.
 - Top navigation items: Dashboard, Jobs, Tracker, Portals, Settings.
-- Command controls: Search jobs, Sync, Queue, notifications, profile.
+- Command controls: Manual Job Search, Sync, Ready, notifications, profile.
 - Use cards only for genuinely standalone objects, modals, and detail panels. Prefer grouped rows with separators for lists.
 - Do not nest cards inside other cards.
 - Use compact but breathable typography inside dashboards, lists, tables, panels, and forms.
@@ -204,7 +204,7 @@ Purpose: shared authenticated layout for all main pages.
 ```text
 +----------------------------------------------------------------+
 | Hunter   Dashboard  Jobs  Tracker  Portals  Settings          |
-|          Search jobs...                 Sync  Queue  Bell  Me  |
+|          Search jobs...                 Sync  Ready  Bell  Me  |
 +----------------------------------------------------------------+
 | Page content                                                   |
 |                                                                |
@@ -223,9 +223,9 @@ Top bar:
 
 - Hunter brand at far left
 - Horizontal nav tabs with active underline or subtle filled state
-- Global search
+- Manual Job Search: query input backed by `POST /api/jobs/search`
 - Manual sync/fetch trigger
-- Apply queue/safety status
+- Ready/safety status
 - Notifications
 - User profile menu
 
@@ -235,6 +235,7 @@ Rules:
 - Keep the header sticky, white, and separated by one quiet bottom border.
 - Use compact icon buttons for sync, queue, notifications, and profile where labels would crowd.
 - On mobile, collapse nav links behind a menu button or horizontal tab scroller.
+- Search must be explicit: typing does not search until the user presses Enter or clicks Search. Search results refresh the Jobs review queue and never apply automatically.
 
 ### 5. Dashboard
 

@@ -28,7 +28,8 @@
 - `backend/ai/` — All Claude API calls. No portal logic here; receives plain dicts and returns plain dicts or strings.
 - `backend/api/` — FastAPI route handlers and Pydantic models. Thin layer: validate input, call portals or AI modules, persist to DB, return response.
 - `backend/core/` — Shared infrastructure: env config, Supabase client, Fernet encryption. No business logic.
-- `backend/scheduler/` — APScheduler jobs. Calls portal search + AI scoring + DB writes. Not reachable via HTTP.
+- `backend/scheduler/` — APScheduler jobs. Calls portal search + AI scoring + DB writes for background discovery. Not reachable via HTTP except the admin trigger.
+- `backend/services/job_discovery.py` — Shared job discovery orchestration for manual search and scheduler search: load user context, call portal search clients, dedupe, score, upsert jobs, and save matches. Route handlers and scheduler jobs should use this service instead of duplicating scoring/upsert logic.
 - `frontend/src/` — React SPA. Communicates only with the FastAPI backend via `api/client.js`. No direct portal or DB access.
 - `chrome_profiles/` — Persistent Playwright browser profiles, one per portal/company. Session state lives here; never commit to git.
 
@@ -51,35 +52,53 @@ Hunter treats tailoring as a per-job draft artifact flow, not as a silent mutati
 6. Backend inserts a `tailored_resumes` row with `status='draft'`, `source_resume_id`, `match_id`, `file_url`, `file_type`, `version`, `tailoring_json`, and `validation_json`.
 7. Frontend shows the draft version, summary of changes, warnings, matched/missing skills, and preview/diff. The base resume remains unchanged.
 8. User clicks **Approve tailored resume**. Backend marks the draft as `approved` and copies its `file_url`/`version` onto the `job_matches` row.
-9. Manual Apply now and auto-apply use the approved tailored artifact for that job when present. If no approved tailored artifact exists, they use the latest uploaded base resume.
-10. Every application record stores the exact `resume_version` and `tailored_resume_url` used.
+9. MVP portal-open tracking records the approved tailored artifact for that job when present. If no approved tailored artifact exists, it records the latest uploaded base resume.
+10. Every portal-pending or completed application record stores the exact `resume_version` and `tailored_resume_url` used.
 
 MVP output format is `.docx` because Hunter already depends on `python-docx` and most ATS upload forms accept DOCX. After the apply flow is stable, add an optional LaTeX/PDF compile loop for polished recruiter-facing exports, visual preview, and final PDF downloads. The PDF path should be an additive export layer, not a replacement for the DOCX artifact used by ATS upload flows.
+
+## Deployment & Production Readiness
+
+- **Current status: local/dev only** (server runs on the owner's own machine, effectively single user). Multi-user production deployment is intentionally deferred.
+- The durable Naukri credential login (encrypted password in `portal_tokens`, browserless API re-login via `get_valid_naukri_auth`) is production-compatible and behaves the same on a server.
+- Before deploying for real users, work through **`docs/context/production-readiness.md`** — the deferred checklist. Headlines: gate the `headless=False` browser-login flow to dev only (credential form is the only server-safe Naukri connect), run APScheduler in exactly one process, plan for Naukri's single-IP anti-bot limits, and lock down `ENCRYPTION_KEY` + Supabase RLS + CORS/HTTPS.
 
 ## Auth and Access Model
 
 - Every user signs in via Supabase Auth. On login the frontend receives a JWT.
 - The JWT is attached as `Authorization: Bearer <token>` on every API request. FastAPI verifies it against Supabase before any handler runs.
 - Every database table has a `user_id` column referencing `public.profiles(id)`. All queries are scoped to the authenticated user's `user_id`.
-- Portal tokens (Naukri Bearer, Foundit Bearer) are stored per user in `portal_tokens` table. They never appear in any API response after being saved.
+- Portal tokens such as Foundit Bearer tokens are stored per user in `portal_tokens` table. They never appear in any API response after being saved.
+- Naukri keyword search uses the public `/jobapi/v3/search` endpoint and needs no login. A Naukri login is optional and only powers personalized recommendations and authed apply.
+- Naukri durable login uses encrypted credential re-login, not a saved token or browser profile. Naukri's `nauk_at` Bearer token is a 1-hour JWT and Naukri logs a browser profile out once it lapses (purging the long-lived `nauk_rt` refresh cookie), so a saved token/profile cannot stay valid for days. Hunter stores the user's Naukri credentials encrypted (Fernet) and silently re-logs in to mint a fresh token when the cached one expires. See `03-naukri-portal.md` → "Durable Authentication". The guided browser-login flow remains as an advanced fallback.
 - Company portal passwords are encrypted with AES-256 (Fernet) before insert. Decrypted only at the moment of Playwright `page.fill()`. The plaintext is deleted from memory immediately after use (`del password`).
 - LinkedIn and Playwright-based portals authenticate via persistent Chrome profile — no password stored. User performs manual login once; the session cookie is reused.
 
-## Apply Modes
+## Job Discovery Modes
 
-- **Manual Apply now**: User-reviewed apply from an approved match. Runs quick pre-apply checks (approval, portal session/token, resume artifact, duplicate status, job availability where supported, questionnaire readiness) and submits through the original portal immediately if blockers are clear. It should not wait for random delay unless a portal-specific hard safety rule requires it.
-- **Auto-apply**: User-enabled batch mode. SafeApplyManager controls time window, daily limits, delay spacing, allowed portals, minimum score threshold, and logging. Recommended default window is 9am-8pm IST.
+- **Manual Job Search**: User-triggered foreground search from the Jobs/top-bar search field. It calls `POST /api/jobs/search`, uses public Naukri search plus any connected token-backed sources, fetches jobs from saved preferences by default, allows a typed role query as a one-time override, scores jobs against the resume, saves matches, and refreshes the review queue.
+- **Daily Scheduler**: Background discovery run at 8am IST. It uses saved preferences as the fetch criteria, public Naukri search plus connected portals, and the same resume-based scoring helpers, but it should not be confused with the top-bar search command.
+- **Recommended feeds**: Optional enrichment only. If Naukri recommendations return 401 while normal `/jobapi/v3/search` works, Hunter logs the recommendation failure and continues search.
+
+Manual search and scheduler are allowed to create the same type of `job_matches` rows. The row metadata should preserve `search_source` (`manual` or `scheduler`), search query/location, and optional search run id so support/debugging can explain where a match came from.
+
+## Portal Action Modes
+
+- **MVP Open portal**: User-reviewed action from a curated match. Hunter records a portal-pending application task, stores the original source URL and resume artifact metadata, opens the portal page, and waits for the user to confirm the outcome in Tracker. It does not submit forms unattended.
+- **Future verified auto-submit**: Dormant code path only. It may be re-enabled later for explicitly verified official/native flows and must use SafeApplyManager throttling, per-portal caps, score threshold, safe window, and audit logging.
 
 ## Invariants
 
-1. **Plain-text passwords never touch the database or logs.** Encrypt immediately on receipt; decrypt only at the moment of browser form fill; delete from memory right after.
+1. **Plain-text passwords never touch the database or logs.** Encrypt immediately on receipt; decrypt only at the moment of use (browser form fill, or the Naukri credential re-login HTTP call); delete from memory right after (`del password`).
 2. **No API response ever includes a password, `password_encrypted`, or Bearer token field** after the initial save.
 3. **ENCRYPTION_KEY lives only in `.env`** — never in source code, never in git history.
-4. **Every apply runs pre-apply checks.** Hunter must confirm approval, portal session/token, resume availability, duplicate status, and job availability where supported before submitting through the source portal.
-5. **SafeApplyManager is mode-aware.** Manual Apply now should submit immediately after checks pass. Auto-apply uses SafeApplyManager throttling: per-portal daily caps, user-configured score threshold, safe window, and random delays between successful applies.
+4. **MVP never submits unattended.** Hunter opens the source portal and records `external_pending` until the user confirms the outcome.
+5. **SafeApplyManager is dormant for MVP auto-submit.** Keep it available for future verified flows, but do not expose broad auto-apply in the UI.
 6. **Tailored resumes are per-job artifacts.** Generating or approving a tailored resume never overwrites the user's base uploaded resume.
-7. **No apply may use an unapproved tailored draft.** Apply routes may use either the latest base resume or an approved tailored artifact tied to that job match.
-8. **User must explicitly approve a job match before any apply.** The scheduler only fetches and scores. Auto-apply may submit approved matches only after the user enables auto-apply and configures its limits.
-9. **The shared `Job` dataclass lives in `portals/naukri/jobs.py`** and is imported by all other portals. Changing its fields is a cross-portal breaking change.
-10. **Proxy rotation is never used.** Naukri's session is bound to the server's Elastic IP. Rotating IPs invalidates the session.
-11. **`npm run build` must pass before moving to the next implementation phase.**
+7. **No portal task may claim an unapproved tailored draft.** Portal-open tracking may reference either the latest base resume or an approved tailored artifact tied to that job match.
+8. **The scheduler never submits applications.** It only fetches, scores, dedupes, and saves curated matches.
+9. **Manual search never applies.** It may fetch from preferences, score against the resume, dedupe, save, and refresh matches only. Tailor/Open portal/Confirm remains a separate user-reviewed path.
+10. **The shared `Job` dataclass lives in `portals/naukri/jobs.py`** and is imported by all other portals. Changing its fields is a cross-portal breaking change.
+11. **Naukri durable auth is credential-based, not token/profile-based.** The `nauk_at` Bearer is a 1-hour JWT and the browser profile cannot retain a session across that gap (Naukri logs it out and purges `nauk_rt`). Search/status/apply code must obtain a live client via `get_valid_naukri_auth()`, which reuses the cached token while its JWT is unexpired and otherwise silently re-logs in from the encrypted stored credentials. Connection status is reported honestly from the cached token expiry plus credential presence — never hardcoded "connected".
+12. **Proxy rotation is never used.** Naukri's session is bound to the server's Elastic IP. Rotating IPs invalidates the session.
+13. **`npm run build` must pass before moving to the next implementation phase.**

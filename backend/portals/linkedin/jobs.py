@@ -110,5 +110,7 @@ def _extract_jobs_from_voyager(data: dict, jobs: List[Job]):
                 apply_link=apply_link,
                 description="",
                 portal="linkedin",
+                apply_method="native",
+                portal_metadata={"apply_route": "easy_apply"},
             ))
             seen_ids.add(job_id)

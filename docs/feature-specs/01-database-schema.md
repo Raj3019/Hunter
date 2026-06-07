@@ -81,6 +81,7 @@ create index idx_resumes_user_id on public.resumes(user_id);
 create table public.preferences (
   id uuid primary key default gen_random_uuid(),
   user_id uuid references public.profiles(id) on delete cascade unique,
+  skills text[] default '{}',
   job_titles text[] default '{}',
   locations text[] default '{}',
   work_type text[] default '{}',    -- 'remote', 'hybrid', 'onsite'
@@ -161,6 +162,10 @@ create table public.jobs (
   experience text,
   tags text[] default '{}',
   apply_link text,
+  apply_method text default 'unknown',
+    -- 'unknown', 'native', 'external', 'ats_supported'
+  external_apply_url text,
+  portal_metadata jsonb default '{}'::jsonb,
   posted_date text,
   is_workday boolean default false,
   is_taleo boolean default false,
@@ -204,6 +209,48 @@ create index idx_job_matches_score on public.job_matches(match_score desc);
 
 ---
 
+### Step 8b - Manual Search Metadata
+
+Manual searches and scheduled searches both create normal `job_matches` rows. Add lightweight source metadata so the UI/support layer can explain where a match came from.
+
+```sql
+alter table public.job_matches
+  add column if not exists search_source text default 'scheduler',
+  add column if not exists search_query text,
+  add column if not exists search_location text,
+  add column if not exists search_run_id uuid,
+  add column if not exists last_scored_at timestamp default now();
+
+create table public.manual_search_runs (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references public.profiles(id) on delete cascade,
+  query text not null,
+  locations text[] default '{}',
+  portals text[] default '{}',
+  experience_years integer default 0,
+  min_score integer default 60,
+  max_pages integer default 1,
+  status text default 'running',
+    -- 'running', 'completed', 'failed', 'cancelled'
+  fetched_count integer default 0,
+  new_jobs_count integer default 0,
+  scored_count integer default 0,
+  saved_matches_count integer default 0,
+  warnings text[] default '{}',
+  error text,
+  started_at timestamp default now(),
+  finished_at timestamp
+);
+
+create index idx_manual_search_runs_user_started
+  on public.manual_search_runs(user_id, started_at desc);
+
+create index idx_job_matches_search_run
+  on public.job_matches(search_run_id);
+```
+
+---
+
 ### Step 9 — Tailored Resumes Table (per-job draft artifacts)
 
 Tailored resumes are generated per job match. They never overwrite the base uploaded resume. A draft becomes usable by apply routes only after the user approves it.
@@ -243,7 +290,8 @@ create table public.applications (
   applied_at timestamp default now(),
   status text default 'applied',
     -- 'approved', 'applied', 'viewed', 'interview', 'offer',
-    -- 'rejected', 'archived', 'blocked', 'failed', 'needs_review'
+    -- 'rejected', 'archived', 'blocked', 'failed', 'needs_review',
+    -- 'external_pending'
   apply_mode text default 'manual',
     -- 'manual', 'auto'
   pre_apply_check jsonb default '{}'::jsonb,
@@ -252,6 +300,8 @@ create table public.applications (
   resume_version text,
   blocked_reason text,
   failed_reason text,
+  external_apply_url text,
+  external_apply_confirmed_at timestamp,
   cover_letter text,
   notes text,
   updated_at timestamp default now()
@@ -261,6 +311,23 @@ create index idx_applications_user_id on public.applications(user_id);
 create index idx_applications_status on public.applications(user_id, status);
 create index idx_applications_applied_at on public.applications(applied_at desc);
 ```
+
+### Step 10b - External Apply Migration
+
+Use `backend/migrations/004_external_apply_pending.sql` when upgrading an existing Supabase project. It adds the apply classification fields without changing historical application rows:
+
+```sql
+alter table public.jobs
+  add column if not exists apply_method text default 'unknown',
+  add column if not exists external_apply_url text,
+  add column if not exists portal_metadata jsonb default '{}'::jsonb;
+
+alter table public.applications
+  add column if not exists external_apply_url text,
+  add column if not exists external_apply_confirmed_at timestamp;
+```
+
+`external_pending` means Hunter found a job that requires the user to finish on a company or external ATS site. It must not be counted as a completed application until the user confirms they applied.
 
 ---
 
@@ -278,6 +345,7 @@ alter table public.company_accounts enable row level security;
 alter table public.job_matches enable row level security;
 alter table public.tailored_resumes enable row level security;
 alter table public.applications enable row level security;
+alter table public.manual_search_runs enable row level security;
 
 -- Profiles: user can only see/edit their own row
 create policy "Users can manage own profile"
@@ -317,6 +385,11 @@ create policy "Users can manage own tailored resumes"
 -- Applications
 create policy "Users can manage own applications"
   on public.applications for all
+  using (auth.uid() = user_id);
+
+-- Manual search runs
+create policy "Users can manage own manual search runs"
+  on public.manual_search_runs for all
   using (auth.uid() = user_id);
 
 -- Jobs table is read-only for users (backend writes via service role)
@@ -366,7 +439,7 @@ create policy "Users can read own resumes"
 After running all SQL blocks:
 
 1. Open Supabase → Table Editor — confirm these tables exist:
-   - `profiles`, `resumes`, `preferences`, `portal_tokens`, `company_accounts`, `jobs`, `job_matches`, `tailored_resumes`, `applications`
+   - `profiles`, `resumes`, `preferences`, `portal_tokens`, `company_accounts`, `jobs`, `job_matches`, `manual_search_runs`, `tailored_resumes`, `applications`
 
 2. Sign up a test user via Supabase Auth → confirm a `profiles` row is auto-created (the trigger fires)
 
@@ -393,7 +466,8 @@ print("DB connection OK:", result)
 
 ## Expected Success Behaviour
 
-- All 8 tables created with no SQL errors
+- All core tables are created with no SQL errors, including `manual_search_runs`
+- Jobs can store `apply_method`, `external_apply_url`, and `portal_metadata`, and applications can store `external_pending` plus the user's external confirmation timestamp
 - `profiles` row appears automatically when a test user registers — trigger is working
 - Inserting a duplicate `(portal, job_id)` into `jobs` raises a unique violation — deduplication will work
 - Python test script prints `DB connection OK` without raising an exception

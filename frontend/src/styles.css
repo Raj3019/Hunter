@@ -128,3 +128,19 @@ textarea {
     transition: border-color 150ms ease, background-color 150ms ease, color 150ms ease;
   }
 }
+
+@keyframes hunter-search-progress {
+  0% {
+    transform: translateX(-110%);
+  }
+  55% {
+    transform: translateX(140%);
+  }
+  100% {
+    transform: translateX(330%);
+  }
+}
+
+.hunter-search-progress {
+  animation: hunter-search-progress 1.7s ease-in-out infinite;
+}

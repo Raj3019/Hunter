@@ -1,5 +1,6 @@
-import { AlertTriangle, CheckCircle, ExternalLink, Save, ShieldCheck, Trash2 } from "lucide-react";
+import { AlertTriangle, CheckCircle, ExternalLink, Loader2, Save, ShieldCheck, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { StatusPill } from "../components/StatusPill";
 import { apiErrorMessage, companyAccountsAPI, portalsAPI } from "../api/client";
 import { formatDate } from "../api/mappers";
@@ -7,14 +8,28 @@ import { formatDate } from "../api/mappers";
 type PortalState = {
   key: string;
   name: string;
-  kind: "Token" | "Browser";
-  status: "connected" | "expired" | "manual" | "not_connected";
+  kind: "Public" | "Login" | "Token" | "Browser";
+  status: "public" | "connected" | "connecting" | "expired" | "manual" | "not_connected";
   checked: string;
   profile?: string;
 };
 
+type ConnectSession = {
+  connection_id: string;
+  state: "idle" | "starting" | "waiting_for_login" | "connected" | "failed" | "expired";
+  message: string;
+  profile_id?: string;
+};
+
 const basePortals: PortalState[] = [
-  { key: "naukri", name: "Naukri", kind: "Token", status: "not_connected", checked: "Not connected" },
+  {
+    key: "naukri",
+    name: "Naukri",
+    kind: "Login",
+    status: "not_connected",
+    checked: "Not connected",
+    profile: "Sign in once to enable personalized recommendations and apply. Hunter keeps the session refreshed; public search works either way.",
+  },
   { key: "foundit", name: "Foundit", kind: "Token", status: "not_connected", checked: "Not connected" },
   { key: "internshala", name: "Internshala", kind: "Browser", status: "manual", checked: "Manual session" },
   { key: "linkedin", name: "LinkedIn", kind: "Browser", status: "manual", checked: "Manual session" },
@@ -29,11 +44,13 @@ const companies = [
   { key: "wipro", name: "Wipro" },
   { key: "hcl", name: "HCL" },
 ];
-const tabs = ["Portals", "Preferences", "Apply Safety", "Resume", "AI Provider"];
+const tabs = ["Portals", "Preferences", "Apply Safety", "Resume"];
 
 function statusLabel(status: PortalState["status"]) {
   return {
+    public: "Public search",
     connected: "Connected",
+    connecting: "Connecting",
     expired: "Expired",
     manual: "Manual login",
     not_connected: "Not connected",
@@ -41,18 +58,26 @@ function statusLabel(status: PortalState["status"]) {
 }
 
 function statusTone(status: PortalState["status"]): "success" | "warning" | "neutral" {
-  if (status === "connected") return "success";
-  if (status === "expired" || status === "manual") return "warning";
+  if (status === "public" || status === "connected") return "success";
+  if (status === "connecting" || status === "expired" || status === "manual") return "warning";
   return "neutral";
 }
 
+function isActiveConnect(session: ConnectSession | null) {
+  return session?.state === "starting" || session?.state === "waiting_for_login";
+}
+
 export function Portals() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [portals, setPortals] = useState(basePortals);
   const [activePortal, setActivePortal] = useState<string | null>(null);
   const [tokenDraft, setTokenDraft] = useState("");
   const [profileDraft, setProfileDraft] = useState("");
   const [companyAccounts, setCompanyAccounts] = useState<Record<string, string>>({});
   const [companyDraft, setCompanyDraft] = useState({ company: "", username: "", password: "" });
+  const [naukriConnect, setNaukriConnect] = useState<ConnectSession | null>(null);
+  const [naukriCreds, setNaukriCreds] = useState({ username: "", password: "" });
+  const [naukriSaving, setNaukriSaving] = useState(false);
   const [message, setMessage] = useState("");
 
   const loadPortalStatus = async () => {
@@ -66,11 +91,22 @@ export function Portals() {
         basePortals.map((portal) => {
           const row = livePortals[portal.key];
           if (!row) return portal;
+          if (portal.key === "naukri") {
+            const expiredNaukri = Boolean(row.requires_reconnect) || String(row.connection_status) === "expired";
+            return {
+              ...portal,
+              status: expiredNaukri ? "expired" : "connected",
+              checked: expiredNaukri ? "Sign in again" : row.username ? `Signed in as ${row.username}` : "Login saved",
+              profile: row.status_message || portal.profile,
+            };
+          }
+          const connectionStatus = String(row.connection_status || "connected");
+          const expired = Boolean(row.requires_reconnect) || connectionStatus === "expired";
           return {
             ...portal,
-            status: "connected",
-            checked: formatDate(row.created_at),
-            profile: row.profile_id || row.chrome_profile_path || "Connected",
+            status: expired ? "expired" : "connected",
+            checked: expired ? "Reconnect needed" : formatDate(row.last_checked_at || row.created_at),
+            profile: row.status_message || (row.profile_id ? "Profile captured" : row.chrome_profile_path ? "Browser session saved" : "Connected"),
           };
         })
       );
@@ -87,6 +123,83 @@ export function Portals() {
   useEffect(() => {
     void loadPortalStatus();
   }, []);
+
+  useEffect(() => {
+    if (!isActiveConnect(naukriConnect) || !naukriConnect?.connection_id) return;
+
+    const timer = window.setInterval(() => {
+      void pollNaukriConnect(naukriConnect.connection_id);
+    }, 2500);
+
+    return () => window.clearInterval(timer);
+  }, [naukriConnect?.connection_id, naukriConnect?.state]);
+
+  const saveNaukriCredentials = async () => {
+    if (!naukriCreds.username.trim() || !naukriCreds.password) {
+      setMessage("Enter your Naukri email and password to sign in.");
+      return;
+    }
+    setNaukriSaving(true);
+    setMessage("Signing in to Naukri...");
+    try {
+      const response = await portalsAPI.saveNaukriCredentials(naukriCreds.username.trim(), naukriCreds.password);
+      setNaukriCreds({ username: "", password: "" });
+      setActivePortal(null);
+      setMessage(`Naukri connected as ${response.data?.username || "your account"}. Hunter keeps this session refreshed automatically.`);
+      await loadPortalStatus();
+    } catch (caught) {
+      setMessage(apiErrorMessage(caught, "Could not sign in to Naukri."));
+    } finally {
+      setNaukriSaving(false);
+    }
+  };
+
+  const disconnectNaukri = async () => {
+    if (!window.confirm("Disconnect Naukri? Your saved credentials and session will be removed.")) return;
+    try {
+      await portalsAPI.disconnectNaukri();
+      setMessage("Naukri disconnected. Public search still works.");
+      await loadPortalStatus();
+    } catch (caught) {
+      setMessage(apiErrorMessage(caught, "Could not disconnect Naukri."));
+    }
+  };
+
+  const startNaukriConnect = async () => {
+    setMessage("Opening Naukri login. Search still works without this; use the browser window only if you want to save a Naukri session.");
+    try {
+      const response = await portalsAPI.startNaukriConnect();
+      const connection = response.data?.connection as ConnectSession;
+      setNaukriConnect(connection);
+      setActivePortal(null);
+      if (connection?.message) setMessage(connection.message);
+      if (connection?.state === "connected") await loadPortalStatus();
+    } catch (caught) {
+      setMessage(apiErrorMessage(caught, "Could not start Naukri browser login."));
+    }
+  };
+
+  const pollNaukriConnect = async (connectionId: string) => {
+    try {
+      const response = await portalsAPI.getNaukriConnectStatus(connectionId);
+      const connection = response.data?.connection as ConnectSession;
+      setNaukriConnect(connection);
+      if (connection?.state === "connected") {
+        setMessage("Naukri browser login saved. Jobs search still uses the public search path by default.");
+        await loadPortalStatus();
+      } else if (connection?.state === "failed" || connection?.state === "expired") {
+        setMessage(connection.message || "Naukri browser login did not complete.");
+      }
+    } catch (caught) {
+      setMessage(apiErrorMessage(caught, "Could not check Naukri browser login status."));
+    }
+  };
+
+  useEffect(() => {
+    if (searchParams.get("connect") !== "naukri" || isActiveConnect(naukriConnect)) return;
+    setSearchParams({}, { replace: true });
+    void startNaukriConnect();
+  }, [naukriConnect?.state, searchParams, setSearchParams]);
 
   const saveTokenPortal = async (portal: PortalState) => {
     if (!tokenDraft || !profileDraft) {
@@ -169,7 +282,7 @@ export function Portals() {
           <div className="grid grid-cols-3 gap-2 rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] p-2">
             <Metric label="Connected" value={portals.filter((portal) => portal.status === "connected").length} tone="success" />
             <Metric label="Expired" value={portals.filter((portal) => portal.status === "expired").length} tone="warning" />
-            <Metric label="Manual" value={portals.filter((portal) => portal.status === "manual").length} />
+            <Metric label="Public/manual" value={portals.filter((portal) => portal.status === "public" || portal.status === "manual").length} />
           </div>
         </div>
         {message && <p className="mt-4 rounded-lg bg-[var(--bg-elevated)] px-3 py-2 text-sm text-[var(--text-muted)]">{message}</p>}
@@ -189,51 +302,106 @@ export function Portals() {
         <section className="air-surface overflow-hidden rounded-lg">
           <div className="border-b border-[var(--border-default)] px-4 py-3">
             <h2 className="text-base font-semibold">Portal status</h2>
-            <p className="text-xs text-[var(--text-muted)]">Tokens and browser sessions are hidden after save.</p>
+            <p className="text-xs text-[var(--text-muted)]">Naukri search works publicly. Browser login is optional and does not block search.</p>
           </div>
           <div>
-            {portals.map((portal) => (
-              <div key={portal.key} className="air-row px-4 py-4">
-                <div className="grid gap-3 lg:grid-cols-[1fr_100px_140px_140px_150px] lg:items-center">
-                  <div>
-                    <p className="text-sm font-semibold">{portal.name}</p>
-                    <p className="mt-1 text-xs text-[var(--text-muted)]">{portal.profile || "Secrets hidden after save"}</p>
-                  </div>
-                  <span className="text-sm text-[var(--text-muted)]">{portal.kind}</span>
-                  <StatusPill label={statusLabel(portal.status)} tone={statusTone(portal.status)} />
-                  <span className="text-sm text-[var(--text-muted)]">{portal.checked}</span>
-                  <div className="flex flex-wrap justify-start gap-2 lg:justify-end">
-                    {portal.kind === "Token" ? (
-                      <button type="button" onClick={() => setActivePortal(activePortal === portal.key ? null : portal.key)} className="air-button h-9 border border-[var(--border-default)] px-3 text-[var(--text-primary)]">
-                        <ExternalLink size={14} />
-                        {portal.status === "connected" ? "Update" : "Connect"}
-                      </button>
-                    ) : (
-                      <button type="button" onClick={() => confirmBrowserPortal(portal)} className="air-button h-9 border border-[var(--border-default)] px-3 text-[var(--text-primary)]">
-                        <ExternalLink size={14} />
-                        Confirm
-                      </button>
-                    )}
-                    {portal.status === "connected" && (
-                      <button type="button" onClick={() => removePortal(portal)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-[var(--border-default)] text-[var(--text-muted)]" aria-label={`Remove ${portal.name}`} title="Remove">
-                        <Trash2 size={14} />
-                      </button>
-                    )}
-                  </div>
-                </div>
+            {portals.map((portal) => {
+              const isNaukri = portal.key === "naukri";
+              const isConnecting = isNaukri && isActiveConnect(naukriConnect);
+              const displayStatus = isConnecting ? "connecting" : portal.status;
+              const displayChecked = isConnecting
+                ? naukriConnect?.state === "starting" ? "Launching browser" : "Waiting for login"
+                : portal.checked;
+              const displayProfile = isConnecting
+                ? naukriConnect?.message || "Starting Naukri browser session..."
+                : portal.profile || "Secrets hidden after save";
 
-                {activePortal === portal.key && portal.kind === "Token" && (
-                  <div className="mt-4 grid gap-2 rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] p-3 sm:grid-cols-[1fr_1fr_auto]">
-                    <input value={profileDraft} onChange={(event) => setProfileDraft(event.target.value)} placeholder={portal.key === "naukri" ? "Profile ID" : "Foundit user id"} className="terminal-field h-9 rounded-md px-3 text-sm" />
-                    <input value={tokenDraft} onChange={(event) => setTokenDraft(event.target.value)} placeholder="Bearer token (hidden after save)" type="password" className="terminal-field h-9 rounded-md px-3 text-sm" />
-                    <button type="button" onClick={() => saveTokenPortal(portal)} className="air-button h-9 bg-[var(--accent-primary)] px-3 text-white">
-                      <Save size={14} />
-                      Save
-                    </button>
+              return (
+                <div key={portal.key} className="air-row px-4 py-4">
+                  <div className="grid gap-3 lg:grid-cols-[1fr_100px_140px_140px_190px] lg:items-center">
+                    <div>
+                      <p className="text-sm font-semibold">{portal.name}</p>
+                      <p className="mt-1 text-xs text-[var(--text-muted)]">{displayProfile}</p>
+                    </div>
+                    <span className="text-sm text-[var(--text-muted)]">{portal.kind}</span>
+                    <StatusPill label={statusLabel(displayStatus)} tone={statusTone(displayStatus)} />
+                    <span className="text-sm text-[var(--text-muted)]">{displayChecked}</span>
+                    <div className="flex flex-wrap justify-start gap-2 lg:justify-end">
+                      {isNaukri ? (
+                        <>
+                          <button type="button" onClick={() => setActivePortal(activePortal === "naukri" ? null : "naukri")} className="air-button h-9 border border-[var(--border-default)] px-3 text-[var(--text-primary)]">
+                            <ExternalLink size={14} />
+                            {portal.status === "expired" ? "Sign in again" : portal.status === "connected" ? "Reconnect" : "Sign in"}
+                          </button>
+                          <span className="inline-flex h-9 items-center rounded-md border border-[var(--border-default)] px-3 text-sm font-medium text-[var(--text-muted)]">
+                            Search works
+                          </span>
+                        </>
+                      ) : portal.kind === "Token" ? (
+                        <button type="button" onClick={() => setActivePortal(activePortal === portal.key ? null : portal.key)} className="air-button h-9 border border-[var(--border-default)] px-3 text-[var(--text-primary)]">
+                          <ExternalLink size={14} />
+                          {portal.status === "connected" ? "Update" : "Manual setup"}
+                        </button>
+                      ) : (
+                        <button type="button" onClick={() => confirmBrowserPortal(portal)} className="air-button h-9 border border-[var(--border-default)] px-3 text-[var(--text-primary)]">
+                          <ExternalLink size={14} />
+                          Confirm
+                        </button>
+                      )}
+                      {isNaukri && (portal.status === "connected" || portal.status === "expired") && (
+                        <button type="button" onClick={disconnectNaukri} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-[var(--border-default)] text-[var(--text-muted)]" aria-label="Disconnect Naukri" title="Disconnect">
+                          <Trash2 size={14} />
+                        </button>
+                      )}
+                      {!isNaukri && portal.status === "connected" && (
+                        <button type="button" onClick={() => removePortal(portal)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-[var(--border-default)] text-[var(--text-muted)]" aria-label={`Remove ${portal.name}`} title="Remove">
+                          <Trash2 size={14} />
+                        </button>
+                      )}
+                    </div>
                   </div>
-                )}
-              </div>
-            ))}
+
+                  {activePortal === "naukri" && isNaukri && (
+                    <div className="mt-4 rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] p-3">
+                      <div className="mb-3">
+                        <p className="text-sm font-semibold">Sign in to Naukri</p>
+                        <p className="text-xs text-[var(--text-muted)]">Your password is encrypted and never shown again. Hunter re-signs in automatically when the Naukri session expires, so you stay connected until you change your password.</p>
+                      </div>
+                      <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+                        <input value={naukriCreds.username} onChange={(event) => setNaukriCreds((current) => ({ ...current, username: event.target.value }))} placeholder="Naukri email" autoComplete="username" className="terminal-field h-9 rounded-md px-3 text-sm" />
+                        <input value={naukriCreds.password} onChange={(event) => setNaukriCreds((current) => ({ ...current, password: event.target.value }))} placeholder="Naukri password" type="password" autoComplete="current-password" className="terminal-field h-9 rounded-md px-3 text-sm" />
+                        <button type="button" onClick={saveNaukriCredentials} disabled={naukriSaving} className="air-button h-9 bg-[var(--accent-primary)] px-3 text-white disabled:cursor-wait disabled:opacity-70">
+                          {naukriSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                          {naukriSaving ? "Signing in" : "Sign in"}
+                        </button>
+                      </div>
+                      <button type="button" onClick={startNaukriConnect} disabled={isConnecting} className="mt-3 text-xs text-[var(--text-muted)] underline underline-offset-2 disabled:opacity-70">
+                        {isConnecting ? (naukriConnect?.state === "starting" ? "Opening browser..." : "Waiting for login...") : "Advanced: use a browser login window instead"}
+                      </button>
+                    </div>
+                  )}
+
+                  {activePortal === portal.key && portal.kind === "Token" && (
+                    <div className="mt-4 rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] p-3">
+                      <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <p className="text-sm font-semibold">Advanced manual setup</p>
+                          <p className="text-xs text-[var(--text-muted)]">Use this only when guided connection cannot capture the portal session.</p>
+                        </div>
+                      </div>
+                      <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+                        <input value={profileDraft} onChange={(event) => setProfileDraft(event.target.value)} placeholder={portal.key === "naukri" ? "Profile ID" : "Foundit user id"} className="terminal-field h-9 rounded-md px-3 text-sm" />
+                        <input value={tokenDraft} onChange={(event) => setTokenDraft(event.target.value)} placeholder="Bearer token (hidden after save)" type="password" className="terminal-field h-9 rounded-md px-3 text-sm" />
+                        <button type="button" onClick={() => saveTokenPortal(portal)} className="air-button h-9 bg-[var(--accent-primary)] px-3 text-white">
+                          <Save size={14} />
+                          Save
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </section>
 

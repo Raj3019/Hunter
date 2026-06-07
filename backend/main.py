@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from api.routes import applications, auth, company_accounts, jobs, portals, preferences, resume
 from core.auth import get_current_user_id
-from core.config import FRONTEND_URL
+from core.config import FRONTEND_ORIGINS
 from core.database import get_db
 from scheduler.daily_fetch import daily_job_fetch
 
@@ -18,7 +18,7 @@ scheduler = AsyncIOScheduler(timezone="Asia/Kolkata")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[FRONTEND_URL],
+    allow_origins=FRONTEND_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -35,18 +35,22 @@ app.include_router(company_accounts.router, prefix="/api/company-accounts", tags
 
 @app.on_event("startup")
 async def startup():
-    scheduler.add_job(
-        daily_job_fetch,
-        trigger="cron",
-        hour=8,
-        minute=0,
-        timezone="Asia/Kolkata",
-        id="daily_job_fetch",
-        replace_existing=True,
-    )
-    if not scheduler.running:
-        scheduler.start()
-    logger.info("Scheduler started - daily fetch at 8:00am IST")
+    # Daily auto-fetch is disabled for now: jobs are fetched/scored on demand when
+    # the user searches and are NOT stored (only acted-on jobs persist). Keep this
+    # code for future use — re-enable to bring back the 8am IST background fetch.
+    # scheduler.add_job(
+    #     daily_job_fetch,
+    #     trigger="cron",
+    #     hour=8,
+    #     minute=0,
+    #     timezone="Asia/Kolkata",
+    #     id="daily_job_fetch",
+    #     replace_existing=True,
+    # )
+    # if not scheduler.running:
+    #     scheduler.start()
+    # logger.info("Scheduler started - daily fetch at 8:00am IST")
+    logger.info("Daily auto-fetch is disabled (on-demand search only).")
 
 
 @app.on_event("shutdown")

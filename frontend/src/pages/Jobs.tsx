@@ -1,14 +1,22 @@
-import { AlertTriangle, Brain, CheckCircle, FileText, MoreHorizontal, Send, ShieldCheck, SlidersHorizontal, XCircle } from "lucide-react";
-import { useMemo, useState } from "react";
+import { AlertTriangle, BookOpen, Brain, ExternalLink, FileText, MapPin, Maximize2, Search, ShieldCheck, SlidersHorizontal, Sparkles, X, XCircle } from "lucide-react";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { StatusPill } from "../components/StatusPill";
 import { TailorModal } from "../components/TailorModal";
-import type { JobMatch } from "../types";
+import type { JobMatch, SearchRunSummary } from "../types";
+import { displayJobStatus, isExternalApplyJob, openExternalApply, statusLabel } from "../utils/jobApply";
 
 interface JobsProps {
   jobs: JobMatch[];
-  onApprove: (id: string) => void;
+  onApprove?: (id: string) => void;
   onSkip: (id: string) => void;
   onQueue: (id: string) => void;
+  onRefresh: () => void | Promise<unknown>;
+  onSearch?: (query: string, options?: { locations?: string[]; minScore?: number }) => void | Promise<void>;
+  searchLoading?: boolean;
+  lastSearchSummary?: SearchRunSummary | null;
+  searchResultIds?: string[] | null;
+  onClearSearchScope?: () => void;
+  applyingLocked?: boolean;
 }
 
 function scoreColor(score: number) {
@@ -19,228 +27,516 @@ function scoreColor(score: number) {
 
 function statusTone(status: JobMatch["status"]) {
   if (status === "approved" || status === "queued" || status === "applying" || status === "applied") return "success";
-  if (status === "blocked" || status === "needs_review") return "warning";
+  if (status === "blocked" || status === "needs_review" || status === "external_pending") return "warning";
   if (status === "failed") return "error";
   return "accent";
 }
 
-export function Jobs({ jobs, onApprove, onSkip, onQueue }: JobsProps) {
+export function Jobs({ jobs, onSkip, onQueue, onRefresh, onSearch, searchLoading = false, lastSearchSummary, searchResultIds, onClearSearchScope, applyingLocked = false }: JobsProps) {
   const [portal, setPortal] = useState("all");
   const [status, setStatus] = useState("all");
-  const [minScore, setMinScore] = useState(60);
+  const [minScore, setMinScore] = useState(0);
+  const [recommendationThreshold, setRecommendationThreshold] = useState(60);
+  const [resultView, setResultView] = useState<"recommended" | "all">("recommended");
+  const [searchDraft, setSearchDraft] = useState("");
+  const [locationDraft, setLocationDraft] = useState("");
   const [selectedId, setSelectedId] = useState(jobs[0]?.id || "");
   const [tailorJob, setTailorJob] = useState<JobMatch | null>(null);
+  const [descriptionOpen, setDescriptionOpen] = useState(false);
+
+  const scopeActive = Array.isArray(searchResultIds);
+  const scopedJobs = useMemo(() => {
+    if (!searchResultIds) return jobs;
+    const order = new Map(searchResultIds.map((id, index) => [id, index] as const));
+    return jobs
+      .filter((job) => order.has(job.id))
+      .sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+  }, [jobs, searchResultIds]);
+
+  // A fresh search should show its results, not hide them behind the
+  // recommended-score threshold, so default the view to all scoped results.
+  useEffect(() => {
+    if (scopeActive) setResultView("all");
+  }, [searchResultIds, scopeActive]);
 
   const filtered = useMemo(
     () =>
-      jobs.filter((job) => {
+      scopedJobs.filter((job) => {
         const portalMatch = portal === "all" || job.portal === portal;
-        const statusMatch = status === "all" || job.status === status;
+        const statusMatch = status === "all" || displayJobStatus(job) === status;
         return portalMatch && statusMatch && job.score >= minScore && job.status !== "skipped";
       }),
-    [jobs, minScore, portal, status]
+    [scopedJobs, minScore, portal, status]
   );
 
-  const selected = filtered.find((job) => job.id === selectedId) || filtered[0];
-  const portals = Array.from(new Set(jobs.map((job) => job.portal)));
+  const portals = Array.from(new Set(scopedJobs.map((job) => job.portal)));
+  const recommended = filtered.filter((job) => isRecommendedMatch(job, recommendationThreshold));
+  // "All results" excludes the recommended ones so the two tabs never overlap.
+  const otherResults = filtered.filter((job) => !isRecommendedMatch(job, recommendationThreshold));
+  const searchOnlyCount = otherResults.length;
+  const displayedJobs = resultView === "recommended" ? recommended : otherResults;
+  const selected = displayedJobs.find((job) => job.id === selectedId) || displayedJobs[0];
+
+  useEffect(() => {
+    setDescriptionOpen(false);
+  }, [selected?.id]);
+
+  const runSearch = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    await onSearch?.(searchDraft, {
+      locations: splitSearchLocations(locationDraft),
+      minScore: recommendationThreshold,
+    });
+  };
 
   return (
     <>
-      <section className="mb-5">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+      <section className="mb-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <h1 className="text-3xl font-semibold tracking-tight">Job matches</h1>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--text-muted)]">Review scored jobs one at a time. When you click apply, Hunter runs a quick safety check and submits if everything is ready.</p>
+            <h1 className="text-2xl font-semibold tracking-tight">Job matches</h1>
+            <p className="mt-1 max-w-2xl text-sm leading-6 text-[var(--text-muted)]">Search live roles, compare fit, then open the original portal.</p>
           </div>
-          <div className="grid grid-cols-3 gap-2 rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] p-2">
-            <Metric label="To review" value={jobs.filter((job) => job.status === "pending").length} />
-            <Metric label="Blocked" value={jobs.filter((job) => job.status === "blocked").length} tone="warning" />
-            <Metric label="Ready" value={jobs.filter((job) => job.status === "applying" || job.status === "approved").length} tone="success" />
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            {scopeActive && (
+              <button type="button" onClick={onClearSearchScope} className="inline-flex h-9 items-center gap-2 rounded-md border border-[var(--accent-primary)] bg-[var(--bg-surface)] px-3 text-[var(--accent-primary)] hover:bg-[var(--bg-elevated)]" title="Show all saved matches instead of just this search">
+              <Search size={14} />
+              Last search ({scopedJobs.length}) · Show all
+            </button>
+            )}
+            <SummaryChip label="Recommended" value={recommended.length} tone="success" />
+            <SummaryChip label="Results" value={filtered.length} />
+            <SummaryChip label="Portal pending" value={scopedJobs.filter((job) => job.status === "external_pending").length} tone="warning" />
           </div>
         </div>
 
-        <div className="mt-4 flex flex-wrap gap-2 rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] p-2 text-sm">
-          <StatusPill label="Resume parsed" tone="success" />
-          <StatusPill label="Preferences saved" tone="success" />
-          <StatusPill label="Portals connected" tone="accent" />
-          <StatusPill label="Safety check before apply" tone="warning" />
-        </div>
+        <SearchWorkbench
+          query={searchDraft}
+          location={locationDraft}
+          threshold={recommendationThreshold}
+          loading={searchLoading}
+          summary={lastSearchSummary}
+          onQueryChange={setSearchDraft}
+          onLocationChange={setLocationDraft}
+          onThresholdChange={setRecommendationThreshold}
+          onSubmit={runSearch}
+          onProfileSearch={() => onSearch?.("", { locations: splitSearchLocations(locationDraft), minScore: recommendationThreshold })}
+        />
       </section>
 
-      <section className="mb-4 flex flex-wrap items-end gap-3 rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] p-3">
-        <SlidersHorizontal size={18} className="mb-2 text-[var(--text-muted)]" />
-        <label className="text-sm">
-          Portal
-          <select value={portal} onChange={(event) => setPortal(event.target.value)} className="terminal-field mt-1 block h-9 rounded-md px-3">
-            <option value="all">All portals</option>
-            {portals.map((item) => (
-              <option key={item} value={item}>{item}</option>
-            ))}
-          </select>
-        </label>
-        <label className="text-sm">
-          Status
-          <select value={status} onChange={(event) => setStatus(event.target.value)} className="terminal-field mt-1 block h-9 rounded-md px-3">
-            <option value="all">All statuses</option>
-            {["pending", "approved", "applying", "blocked", "needs_review", "failed"].map((item) => (
-              <option key={item} value={item}>{item}</option>
-            ))}
-          </select>
-        </label>
-        <label className="text-sm">
-          Score
-          <input value={minScore} onChange={(event) => setMinScore(Number(event.target.value))} type="number" min={0} max={100} className="terminal-field mt-1 block h-9 w-24 rounded-md px-3" />
-        </label>
-        <button type="button" className="air-button h-9 border border-[var(--border-default)] px-3 text-[var(--text-muted)] hover:border-[var(--accent-primary)] hover:text-[var(--text-primary)]">
-          Saved views
-        </button>
-      </section>
-
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
-        <section className="air-surface overflow-hidden rounded-lg">
-          <div className="flex items-center justify-between border-b border-[var(--border-default)] px-4 py-3">
-            <div>
-              <h2 className="text-base font-semibold">Jobs to review</h2>
-              <p className="text-xs text-[var(--text-muted)]">{filtered.length} jobs match the current filters</p>
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_430px]">
+        <section className="air-surface flex min-h-[560px] overflow-hidden rounded-lg xl:h-[calc(100vh-10rem)]">
+          <div className="flex min-w-0 flex-1 flex-col">
+            <div className="border-b border-[var(--border-default)] px-4 py-3">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <ViewTabs
+                  active={resultView}
+                  recommendedCount={recommended.length}
+                  allCount={otherResults.length}
+                  onChange={setResultView}
+                />
+                <div className="flex flex-wrap items-center gap-2">
+                  <SlidersHorizontal size={16} className="text-[var(--text-muted)]" />
+                  <select aria-label="Portal filter" value={portal} onChange={(event) => setPortal(event.target.value)} className="terminal-field h-9 rounded-md px-2 text-sm">
+                    <option value="all">All portals</option>
+                    {portals.map((item) => (
+                      <option key={item} value={item}>{item}</option>
+                    ))}
+                  </select>
+                  <select aria-label="Status filter" value={status} onChange={(event) => setStatus(event.target.value)} className="terminal-field h-9 rounded-md px-2 text-sm">
+                    <option value="all">All statuses</option>
+                    {["external_pending", "applied", "failed"].map((item) => (
+                      <option key={item} value={item}>{statusLabel(item)}</option>
+                    ))}
+                  </select>
+                  <input aria-label="Minimum score" value={minScore} onChange={(event) => setMinScore(Number(event.target.value))} type="number" min={0} max={100} className="terminal-field h-9 w-20 rounded-md px-2 text-sm" />
+                </div>
+              </div>
+              <p className="mt-2 text-xs text-[var(--text-muted)]">
+                {resultView === "recommended"
+                  ? `${recommended.length} recommended matches. ${searchOnlyCount} more in All results.`
+                  : `${otherResults.length} other results (recommended jobs are in the Recommended tab).`}
+              </p>
             </div>
-            <MoreHorizontal size={18} className="text-[var(--text-muted)]" />
-          </div>
-          <div>
-            {filtered.map((job) => (
+            <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin">
+              {displayedJobs.length === 0 ? (
+                <EmptyResults view={resultView} threshold={recommendationThreshold} />
+              ) : displayedJobs.map((job) => (
               <button
                 key={job.id}
                 type="button"
                 onClick={() => setSelectedId(job.id)}
-                className={`air-row grid w-full gap-3 px-4 py-4 text-left transition hover:bg-[var(--bg-elevated)] md:grid-cols-[72px_1fr_120px_120px_92px] ${
-                  selected?.id === job.id ? "bg-[var(--bg-elevated)]" : "bg-[var(--bg-surface)]"
+                className={`air-row grid w-full gap-3 border-l-2 px-4 py-3 text-left transition hover:bg-[var(--bg-elevated)] md:grid-cols-[52px_minmax(0,1fr)_190px] ${
+                  selected?.id === job.id ? "border-l-[var(--accent-primary)] bg-[var(--bg-elevated)]" : "border-l-transparent bg-[var(--bg-surface)]"
                 }`}
               >
+                {(() => {
+                  const effectiveStatus = displayJobStatus(job);
+                  const external = isExternalApplyJob(job);
+                  return (
+                    <>
                 <div className="flex items-center">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-full border text-sm font-semibold" style={{ color: scoreColor(job.score), borderColor: scoreColor(job.score) }}>
+                  <div className="flex h-11 w-11 items-center justify-center rounded-full border text-sm font-semibold" style={{ color: scoreColor(job.score), borderColor: scoreColor(job.score) }}>
                     {job.score}
                   </div>
                 </div>
                 <div className="min-w-0">
                   <p className="truncate text-sm font-semibold">{job.title}</p>
                   <p className="mt-1 truncate text-xs text-[var(--text-muted)]">{job.company} - {job.location}</p>
+                  <p className="mt-1 truncate text-xs text-[var(--accent-primary)]">{job.recommendationLabel || "Search result"}</p>
                 </div>
-                <div className="flex items-center">
+                <div className="flex flex-wrap items-center justify-start gap-2 md:justify-end">
                   <StatusPill label={job.portal} tone="neutral" />
+                  {effectiveStatus !== "pending" && <StatusPill label={statusLabel(effectiveStatus)} tone={statusTone(effectiveStatus)} />}
+                  {(external || effectiveStatus === "blocked" || effectiveStatus === "needs_review" || effectiveStatus === "failed") && (
+                    <AlertTriangle size={15} className="text-[var(--state-warning)]" />
+                  )}
                 </div>
-                <div className="flex items-center">
-                  <StatusPill label={job.status} tone={statusTone(job.status)} />
-                </div>
-                <div className="flex items-center justify-between gap-2">
-                  <span className="inline-flex items-center gap-1 text-xs text-[var(--text-muted)]">
-                    {job.status === "blocked" || job.status === "needs_review" || job.status === "failed" ? <AlertTriangle size={14} style={{ color: "var(--state-warning)" }} /> : <ShieldCheck size={14} style={{ color: "var(--state-success)" }} />}
-                    {job.status === "blocked" || job.status === "needs_review" || job.status === "failed" ? "Caution" : "Ready"}
-                  </span>
-                  <MoreHorizontal size={16} className="text-[var(--text-muted)]" />
-                </div>
+                    </>
+                  );
+                })()}
               </button>
-            ))}
+              ))}
+            </div>
           </div>
         </section>
 
-        <aside className="air-surface rounded-lg p-4 xl:sticky xl:top-24 xl:self-start">
+        <aside className="air-surface rounded-lg xl:sticky xl:top-24 xl:h-[calc(100vh-10rem)] xl:self-start xl:overflow-hidden">
           {selected ? (
-            <>
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-xs font-medium uppercase tracking-wide text-[var(--text-muted)]">Selected match</p>
-                  <h2 className="mt-2 text-xl font-semibold">{selected.title}</h2>
-                  <p className="mt-1 text-sm text-[var(--text-muted)]">{selected.company} - {selected.portal}</p>
-                </div>
-                <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full border text-lg font-semibold" style={{ color: scoreColor(selected.score), borderColor: scoreColor(selected.score) }}>
-                  {selected.score}
-                </div>
-              </div>
-
-              <div className="mt-5 rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] p-3">
-                <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]"><Brain size={14} /> JD summary</p>
-                <p className="mt-2 text-sm leading-6">{selected.jdSummary}</p>
-              </div>
-
-              <div className="mt-5">
-                <p className="text-sm font-semibold">AI fit</p>
-                <div className="mt-3 space-y-3">
-                  {[
-                    ["Skills match", 92],
-                    ["Experience match", 88],
-                    ["Apply safety", selected.status === "blocked" || selected.status === "needs_review" || selected.status === "failed" ? 42 : 100],
-                  ].map(([label, value]) => (
-                    <div key={label}>
-                      <div className="mb-1 flex justify-between text-xs"><span>{label}</span><span className="text-[var(--text-muted)]">{value}%</span></div>
-                      <div className="h-1.5 rounded-full bg-[var(--bg-elevated)]">
-                        <div className="h-full rounded-full bg-[var(--accent-primary)]" style={{ width: `${value}%` }} />
-                      </div>
+            <div className="flex h-full min-h-0 flex-col">
+              <div className="shrink-0 p-4 pb-3">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-xs font-medium uppercase tracking-wide text-[var(--text-muted)]">Selected match</p>
+                      {displayJobStatus(selected) !== "pending" && <StatusPill label={statusLabel(displayJobStatus(selected))} tone={statusTone(displayJobStatus(selected))} />}
                     </div>
-                  ))}
+                    <h2 className="mt-2 text-xl font-semibold leading-snug">{selected.title}</h2>
+                    <p className="mt-1 text-sm text-[var(--text-muted)]">{selected.company} - {selected.portal}</p>
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      <StatusPill label={selected.recommendationLabel || "Search result"} tone={selected.recommended ? "success" : "neutral"} />
+                      {selected.preferenceScore !== undefined && selected.preferencesAvailable && <StatusPill label={`Preference ${selected.preferenceScore}%`} tone="accent" />}
+                    </div>
+                  </div>
+                  <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full border text-lg font-semibold" style={{ color: scoreColor(selected.score), borderColor: scoreColor(selected.score) }}>
+                    {selected.score}
+                  </div>
                 </div>
               </div>
 
-              <div className="mt-5 grid gap-4">
-                <SkillGroup title="Matched skills" skills={selected.matchedSkills} tone="success" />
-                <SkillGroup title="Missing skills" skills={selected.missingSkills} />
-              </div>
+              <MatchActions
+                job={selected}
+                applyingLocked={applyingLocked}
+                onTailor={() => setTailorJob(selected)}
+                onQueue={() => onQueue(selected.id)}
+                onSkip={() => onSkip(selected.id)}
+              />
 
-              <div className="mt-5 rounded-lg border border-[var(--border-default)] p-3 text-sm">
-                <p className="font-medium">Resume version</p>
-                <p className="mt-1 text-[var(--text-muted)]">Base resume + approved tailored drafts</p>
-              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto p-4 pt-4 scrollbar-thin">
+                <dl className="grid grid-cols-2 gap-x-4 gap-y-3 border-y border-[var(--border-default)] py-3 text-sm">
+                  <Fact label="Location" value={selected.location} />
+                  <Fact label="Experience" value={selected.experience} />
+                  <Fact label="Salary" value={selected.salary} />
+                  <Fact label="Resume" value={selected.tailoredResumeApproved ? selected.tailoredResumeVersion || "Tailored" : "Base resume"} />
+                </dl>
 
-              <p className="mt-4 flex gap-2 rounded-lg bg-[var(--bg-elevated)] p-3 text-sm text-[var(--text-muted)]">
-                <ShieldCheck size={16} style={{ color: "var(--state-success)" }} />
-                Hunter checks the portal session, duplicate risk, resume availability, and source status before submitting.
-              </p>
+                <div className="mt-4 rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]"><Brain size={14} /> Role snapshot</p>
+                    <button type="button" onClick={() => setDescriptionOpen(true)} className="inline-flex items-center gap-1 rounded-md border border-[var(--border-default)] bg-[var(--bg-surface)] px-2 py-1 text-xs font-medium text-[var(--text-primary)] hover:border-[var(--accent-primary)]" title="View full description">
+                      <Maximize2 size={12} />
+                      Full
+                    </button>
+                  </div>
+                  <p className="mt-2 whitespace-pre-wrap text-sm leading-6">{selected.jdSummary}</p>
+                </div>
 
-              <div className="mt-5 grid grid-cols-3 gap-2">
-                <button type="button" onClick={() => setTailorJob(selected)} className="air-button h-10 border border-[var(--border-default)] text-[var(--text-primary)] hover:border-[var(--accent-primary)]">
-                  <FileText size={15} />
-                  Tailor
-                </button>
-                {selected.status === "approved" ? (
-                  <button type="button" onClick={() => onQueue(selected.id)} className="air-button h-10 bg-[var(--state-success)] text-white">
-                    <Send size={15} />
-                    Apply now
-                  </button>
-                ) : selected.status === "applying" ? (
-                  <button type="button" disabled className="air-button h-10 bg-[var(--state-success)] text-white opacity-80">
-                    <Send size={15} />
-                    Applying
-                  </button>
-                ) : (
-                  <button type="button" onClick={() => onApprove(selected.id)} disabled={selected.status !== "pending"} className="air-button h-10 bg-[var(--accent-primary)] text-white disabled:cursor-not-allowed disabled:bg-slate-300">
-                    <CheckCircle size={15} />
-                    Approve
-                  </button>
-                )}
-                <button type="button" onClick={() => onSkip(selected.id)} disabled={selected.status === "applying" || selected.status === "applied"} className="air-button h-10 border border-[var(--border-default)] text-[var(--text-muted)] hover:text-[var(--state-error)] disabled:cursor-not-allowed disabled:opacity-50">
-                  <XCircle size={15} />
-                  Skip
-                </button>
+                <div className="mt-4 grid gap-4">
+                  {selected.preferenceMatchedTerms && selected.preferenceMatchedTerms.length > 0 && (
+                    <SkillGroup title="Preference matches" skills={selected.preferenceMatchedTerms} tone="success" />
+                  )}
+                  <SkillGroup title="Matched skills" skills={selected.matchedSkills} tone="success" />
+                  <SkillGroup title="Missing skills" skills={selected.missingSkills} />
+                </div>
+
+                <p className="mt-4 flex gap-2 rounded-lg bg-[var(--bg-elevated)] p-3 text-sm leading-6 text-[var(--text-muted)]">
+                  {selected.status === "external_pending" ? <ExternalLink size={16} style={{ color: "var(--state-warning)" }} /> : <ShieldCheck size={16} style={{ color: "var(--state-success)" }} />}
+                  {selected.status === "external_pending"
+                    ? "This role is waiting for confirmation after opening the original portal."
+                    : "Hunter opens the original portal page and tracks this as pending until you confirm the outcome."}
+                </p>
               </div>
-            </>
+            </div>
           ) : (
-            <p className="text-sm text-[var(--text-muted)]">No jobs match the current filters.</p>
+            <p className="p-4 text-sm text-[var(--text-muted)]">No jobs match the current filters.</p>
           )}
         </aside>
       </div>
 
-      {tailorJob && <TailorModal job={tailorJob} onClose={() => setTailorJob(null)} />}
+      {tailorJob && <TailorModal job={tailorJob} onClose={() => setTailorJob(null)} onApproved={onRefresh} />}
+      {selected && descriptionOpen && <JobDescriptionModal job={selected} onClose={() => setDescriptionOpen(false)} />}
     </>
   );
 }
 
-function Metric({ label, value, tone }: { label: string; value: number | string; tone?: "success" | "warning" }) {
+function SearchWorkbench({
+  query,
+  location,
+  threshold,
+  loading,
+  summary,
+  onQueryChange,
+  onLocationChange,
+  onThresholdChange,
+  onSubmit,
+  onProfileSearch,
+}: {
+  query: string;
+  location: string;
+  threshold: number;
+  loading: boolean;
+  summary?: SearchRunSummary | null;
+  onQueryChange: (value: string) => void;
+  onLocationChange: (value: string) => void;
+  onThresholdChange: (value: number) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void | Promise<void>;
+  onProfileSearch: () => void | Promise<void>;
+}) {
   return (
-    <div className="min-w-24 px-3 py-2">
-      <p className="text-xs text-[var(--text-muted)]">{label}</p>
-      <p className="mt-1 text-2xl font-semibold tracking-tight" style={{ color: tone === "success" ? "var(--state-success)" : tone === "warning" ? "var(--state-warning)" : "var(--text-primary)" }}>
-        {value}
-      </p>
+    <section className="mt-4 rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] p-3 shadow-sm">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm font-semibold">Search live jobs</p>
+        {summary && (
+          <div className="flex flex-wrap gap-2">
+            <SearchStat label="Fetched" value={summary.fetchedCount} />
+            <SearchStat label="Scored" value={summary.savedCount} />
+            <SearchStat label="Recommended" value={summary.recommendedCount} tone="success" />
+          </div>
+        )}
+      </div>
+      <form onSubmit={onSubmit} className="grid gap-2 lg:grid-cols-[minmax(240px,1fr)_minmax(180px,0.65fr)_110px_auto_auto] lg:items-end">
+        <label className="text-xs font-medium uppercase tracking-wide text-[var(--text-muted)]">
+          Role or keyword
+          <div className="relative mt-1">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" />
+            <input
+              value={query}
+              onChange={(event) => onQueryChange(event.target.value)}
+              disabled={loading}
+              className="terminal-field h-10 w-full rounded-md pl-9 pr-3 text-sm normal-case tracking-normal disabled:cursor-wait disabled:opacity-80"
+              placeholder="frontend developer, DevOps, React"
+            />
+          </div>
+        </label>
+
+        <label className="text-xs font-medium uppercase tracking-wide text-[var(--text-muted)]">
+          Location
+          <div className="relative mt-1">
+            <MapPin size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" />
+            <input
+              value={location}
+              onChange={(event) => onLocationChange(event.target.value)}
+              disabled={loading}
+              className="terminal-field h-10 w-full rounded-md pl-9 pr-3 text-sm normal-case tracking-normal disabled:cursor-wait disabled:opacity-80"
+              placeholder="Mumbai, Pune, Remote"
+            />
+          </div>
+        </label>
+
+        <label className="text-xs font-medium uppercase tracking-wide text-[var(--text-muted)]">
+          Recommend at
+          <input
+            value={threshold}
+            onChange={(event) => onThresholdChange(Number(event.target.value))}
+            disabled={loading}
+            type="number"
+            min={0}
+            max={100}
+            className="terminal-field mt-1 h-10 w-full rounded-md px-3 text-sm normal-case tracking-normal disabled:cursor-wait disabled:opacity-80"
+          />
+        </label>
+
+        <button type="submit" disabled={loading} className="air-button h-10 bg-[var(--accent-primary)] px-4 text-white hover:bg-[var(--accent-hover)] disabled:cursor-wait disabled:opacity-80">
+          {loading ? <Sparkles size={16} className="animate-pulse" /> : <Search size={16} />}
+          {loading ? "Searching" : "Search"}
+        </button>
+
+        <button type="button" disabled={loading} onClick={onProfileSearch} className="air-button h-10 border border-[var(--border-default)] px-4 text-[var(--text-primary)] hover:border-[var(--accent-primary)] disabled:cursor-wait disabled:opacity-70">
+          <Sparkles size={16} />
+          Profile
+        </button>
+      </form>
+    </section>
+  );
+}
+
+function SummaryChip({ label, value, tone }: { label: string; value: number | string; tone?: "success" | "warning" }) {
+  const color = tone === "success" ? "var(--state-success)" : tone === "warning" ? "var(--state-warning)" : "var(--text-primary)";
+  return (
+    <div className="inline-flex h-9 items-center gap-2 rounded-md border border-[var(--border-default)] bg-[var(--bg-surface)] px-3">
+      <span className="text-xs text-[var(--text-muted)]">{label}</span>
+      <span className="text-sm font-semibold" style={{ color }}>{value}</span>
     </div>
   );
+}
+
+function SearchStat({ label, value, tone }: { label: string; value: number; tone?: "success" }) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-md border border-[var(--border-default)] bg-[var(--bg-elevated)] px-2 py-1 text-xs text-[var(--text-muted)]">
+      {label}
+      <strong style={{ color: tone === "success" ? "var(--state-success)" : "var(--text-primary)" }}>{value}</strong>
+    </span>
+  );
+}
+
+function Fact({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-[11px] font-medium uppercase text-[var(--text-muted)]">{label}</dt>
+      <dd className="mt-1 truncate text-sm font-medium">{value || "Not specified"}</dd>
+    </div>
+  );
+}
+
+function ViewTabs({
+  active,
+  recommendedCount,
+  allCount,
+  onChange,
+}: {
+  active: "recommended" | "all";
+  recommendedCount: number;
+  allCount: number;
+  onChange: (view: "recommended" | "all") => void;
+}) {
+  const items = [
+    { id: "recommended" as const, label: "Recommended", count: recommendedCount },
+    { id: "all" as const, label: "All results", count: allCount },
+  ];
+  return (
+    <div className="inline-flex rounded-md border border-[var(--border-default)] bg-[var(--bg-elevated)] p-1">
+      {items.map((item) => (
+        <button
+          key={item.id}
+          type="button"
+          onClick={() => onChange(item.id)}
+          className={`inline-flex h-8 items-center gap-2 rounded px-3 text-sm font-medium transition ${
+            active === item.id ? "bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-sm" : "text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+          }`}
+        >
+          {item.label}
+          <span className="rounded-full bg-[var(--bg-elevated)] px-2 py-0.5 text-xs">{item.count}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function EmptyResults({ view, threshold }: { view: "recommended" | "all"; threshold: number }) {
+  return (
+    <div className="flex min-h-64 items-center justify-center p-6 text-center">
+      <div>
+        <p className="text-sm font-semibold text-[var(--text-primary)]">
+          {view === "recommended" ? "No recommended jobs at this threshold" : "No jobs match the filters"}
+        </p>
+        <p className="mt-2 max-w-md text-sm leading-6 text-[var(--text-muted)]">
+          {view === "recommended"
+            ? `Lower the recommendation score below ${threshold}, adjust filters, or switch to All results.`
+            : "Broaden the portal/status/score filters or run a new search."}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function MatchActions({
+  job,
+  applyingLocked,
+  onTailor,
+  onQueue,
+  onSkip,
+}: {
+  job: JobMatch;
+  applyingLocked: boolean;
+  onTailor: () => void;
+  onQueue: () => void;
+  onSkip: () => void;
+}) {
+  const currentStatus = displayJobStatus(job);
+  return (
+    <div className="shrink-0 border-y border-[var(--border-default)] bg-[var(--bg-surface)] px-4 py-3">
+      <div className="grid grid-cols-3 gap-2">
+        <button type="button" onClick={onTailor} disabled={job.persisted === false} className="air-button h-10 border border-[var(--border-default)] text-[var(--text-primary)] hover:border-[var(--accent-primary)] disabled:cursor-not-allowed disabled:opacity-50" title={job.persisted === false ? "Tailoring is available after a job is saved to the review queue." : "Tailor resume"}>
+          <FileText size={15} />
+          Tailor
+        </button>
+        {job.status === "external_pending" ? (
+          <button type="button" onClick={() => openExternalApply(job.externalApplyUrl || "")} disabled={!job.externalApplyUrl} className="air-button h-10 bg-[var(--state-warning)] text-white disabled:cursor-not-allowed disabled:opacity-50">
+            <ExternalLink size={15} />
+            Open portal
+          </button>
+        ) : job.status === "pending" || job.status === "approved" || isExternalApplyJob(job) ? (
+          <button type="button" onClick={onQueue} disabled={applyingLocked} className="air-button h-10 bg-[var(--state-success)] text-white disabled:cursor-wait disabled:opacity-80">
+            <ExternalLink size={15} />
+            {applyingLocked ? "Opening" : "Open portal"}
+          </button>
+        ) : job.status === "applying" ? (
+          <button type="button" disabled className="air-button h-10 bg-[var(--state-success)] text-white opacity-80">
+            <ExternalLink size={15} />
+            Opening
+          </button>
+        ) : (
+          <button type="button" disabled className="air-button h-10 bg-[var(--accent-primary)] text-white disabled:cursor-not-allowed disabled:bg-slate-300">
+            <ShieldCheck size={15} />
+            {currentStatus === "failed" || currentStatus === "blocked" ? "Unavailable" : "Ready"}
+          </button>
+        )}
+        <button type="button" onClick={onSkip} disabled={job.status === "applying" || job.status === "applied" || applyingLocked} className="air-button h-10 border border-[var(--border-default)] text-[var(--text-muted)] hover:text-[var(--state-error)] disabled:cursor-not-allowed disabled:opacity-50">
+          <XCircle size={15} />
+          Skip
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function JobDescriptionModal({ job, onClose }: { job: JobMatch; onClose: () => void }) {
+  const description = job.jdFullDescription || job.jdSummary || "No job description snapshot is available yet.";
+
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-950/55 p-3 backdrop-blur-sm sm:p-6" role="dialog" aria-modal="true">
+      <section className="mx-auto flex max-h-full max-w-4xl flex-col rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] shadow-2xl">
+        <header className="flex items-start justify-between gap-4 border-b border-[var(--border-default)] px-4 py-3">
+          <div className="min-w-0">
+            <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+              <BookOpen size={14} />
+              Full job description
+            </p>
+            <h2 className="mt-2 text-xl font-semibold leading-snug">{job.title}</h2>
+            <p className="mt-1 text-sm text-[var(--text-muted)]">{job.company} - {job.location}</p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close full job description" title="Close" className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[var(--border-default)]">
+            <X size={15} />
+          </button>
+        </header>
+        <div className="overflow-y-auto p-4 scrollbar-thin">
+          <p className="whitespace-pre-wrap text-sm leading-7 text-[var(--text-primary)]">{description}</p>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function isRecommendedMatch(job: JobMatch, threshold: number): boolean {
+  return Boolean(job.recommended || (job.recommendationBasis !== "search" && job.score >= threshold));
+}
+
+function splitSearchLocations(value: string): string[] | undefined {
+  const locations = value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  return locations.length ? locations : undefined;
 }
 
 function SkillGroup({ title, skills, tone }: { title: string; skills: string[]; tone?: "success" }) {

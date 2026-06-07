@@ -22,11 +22,12 @@ Primary user journey:
 2. Upload resume and review parsed data.
 3. Save job preferences.
 4. Connect portals or acknowledge optional portal setup.
-5. Review scored job matches.
-6. Tailor resume when needed.
-7. Approve a job before any apply action.
-8. Queue/apply through SafeApplyManager.
-9. Track applications through the pipeline.
+5. Run Manual Job Search when they want immediate live matches for a role/location.
+6. Review scored job matches.
+7. Tailor resume when needed.
+8. Approve a job before any apply action.
+9. Queue/apply through SafeApplyManager.
+10. Track applications through the pipeline.
 
 No screen should imply that Hunter applies to jobs without user approval.
 
@@ -88,7 +89,7 @@ Shell rules:
 
 - Sidebar width: 240px on desktop.
 - Sidebar collapses to an icon rail or drawer on smaller screens.
-- Top bar contains global search, manual sync/fetch trigger, queue/safety status, profile menu, and theme toggle.
+- Top bar contains Manual Job Search, manual sync/refresh trigger, ready/safety status, profile menu, and theme toggle.
 - Authenticated content uses the full width available after the sidebar.
 - Cards are used only for repeated jobs, applications, portal/account tiles, modals, and drawers.
 - Do not nest cards inside cards.

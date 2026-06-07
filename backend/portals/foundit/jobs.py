@@ -28,6 +28,21 @@ class FounditJobClient:
         return self._parse_jobs(response.json())
 
     def apply_job(self, job: Job) -> dict:
+        if (job.apply_method or "unknown").lower() == "external":
+            external_url = job.external_apply_url or job.apply_link
+            return {
+                "success": False,
+                "external_pending": True,
+                "apply_method": "external",
+                "reason": "This job must be completed on the company website or source job page.",
+                "external_apply_url": external_url,
+                "portal_response": {
+                    "source": "foundit",
+                    "apply_method": job.apply_method or "unknown",
+                    "portal_metadata": job.portal_metadata,
+                },
+            }
+
         response = self.session.post(APPLY_URL, json={"jobId": job.job_id})
         return response.json()
 
@@ -78,6 +93,18 @@ class FounditJobClient:
             salary_raw = item.get("salary") or item.get("salaryDetail") or item.get("salaryRange")
             skills_raw = item.get("keySkills") or item.get("skills") or item.get("skillSet") or []
             tags = self._parse_tags(skills_raw)
+            apply_link = (
+                item.get("applyLink") or
+                item.get("applyUrl") or
+                item.get("jdLink") or
+                item.get("jdUrl") or
+                item.get("redirectUrl") or
+                item.get("jobUrl") or
+                ""
+            )
+            portal_metadata = self._apply_metadata(item)
+            apply_method = self._classify_apply_method(portal_metadata)
+            external_apply_url = self._external_apply_url(item) or (apply_link if apply_method != "native" else "")
 
             jobs.append(Job(
                 job_id=str(item.get("jobId") or item.get("id") or item.get("kiwiJobId") or ""),
@@ -94,20 +121,60 @@ class FounditJobClient:
                     item.get("updatedAt") or
                     ""
                 ),
-                apply_link=(
-                    item.get("applyLink") or
-                    item.get("applyUrl") or
-                    item.get("jdLink") or
-                    item.get("jdUrl") or
-                    item.get("redirectUrl") or
-                    item.get("jobUrl") or
-                    ""
-                ),
+                apply_link=apply_link,
                 description=item.get("jobDescription") or item.get("description") or "",
                 portal="foundit",
                 tags=tags,
+                apply_method=apply_method,
+                external_apply_url=external_apply_url,
+                portal_metadata=portal_metadata,
             ))
         return jobs
+
+    def _apply_metadata(self, item: dict) -> dict:
+        keys = {
+            "applyType",
+            "applyMode",
+            "applyMethod",
+            "applyLink",
+            "applyUrl",
+            "redirectUrl",
+            "externalApplyUrl",
+            "isExternalApply",
+            "quickApply",
+            "directApply",
+            "easyApply",
+        }
+        return {
+            key: item.get(key)
+            for key in keys
+            if key in item and item.get(key) not in (None, "")
+        }
+
+    def _classify_apply_method(self, metadata: dict) -> str:
+        combined = " ".join(
+            str(value).lower()
+            for value in metadata.values()
+            if isinstance(value, (str, int, bool))
+        )
+        if any(marker in combined for marker in ("external", "redirect", "company site", "company website")):
+            return "external"
+        if self._is_truthy(metadata.get("isExternalApply")):
+            return "external"
+        if (
+            self._is_truthy(metadata.get("quickApply")) or
+            self._is_truthy(metadata.get("directApply")) or
+            self._is_truthy(metadata.get("easyApply"))
+        ):
+            return "native"
+        return "unknown"
+
+    def _external_apply_url(self, item: dict) -> str:
+        for key in ("externalApplyUrl", "applyUrl", "applyLink", "redirectUrl", "jobUrl"):
+            value = item.get(key)
+            if isinstance(value, str) and value.startswith(("http://", "https://")):
+                return value
+        return ""
 
     @staticmethod
     def _join_value(value) -> str:
@@ -127,6 +194,16 @@ class FounditJobClient:
                 ", ".join(str(v) for v in value.values() if v)
             )
         return str(value)
+
+    @staticmethod
+    def _is_truthy(value) -> bool:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, int):
+            return value == 1
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "y"}
+        return False
 
     @staticmethod
     def _range_text(minimum, maximum, suffix: str) -> str:

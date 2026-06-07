@@ -1,3 +1,5 @@
+import asyncio
+
 import httpx
 import anthropic
 
@@ -10,12 +12,22 @@ from core.config import (
 )
 
 _anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY) if ANTHROPIC_API_KEY else None
+AI_REQUEST_TIMEOUT_SECONDS = 45
 
 
 async def complete_text(prompt: str, max_tokens: int) -> str:
-    if AI_PROVIDER == "openrouter":
-        return await _complete_openrouter(prompt, max_tokens)
-    return _complete_anthropic(prompt, max_tokens)
+    try:
+        if AI_PROVIDER == "openrouter":
+            return await asyncio.wait_for(
+                _complete_openrouter(prompt, max_tokens),
+                timeout=AI_REQUEST_TIMEOUT_SECONDS,
+            )
+        return await asyncio.wait_for(
+            asyncio.to_thread(_complete_anthropic, prompt, max_tokens),
+            timeout=AI_REQUEST_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError as exc:
+        raise RuntimeError("AI request timed out. Try again or reduce the search size.") from exc
 
 
 def _complete_anthropic(prompt: str, max_tokens: int) -> str:
@@ -33,6 +45,8 @@ def _complete_anthropic(prompt: str, max_tokens: int) -> str:
 async def _complete_openrouter(prompt: str, max_tokens: int) -> str:
     if not OPENROUTER_API_KEY:
         raise RuntimeError("Missing OPENROUTER_API_KEY for AI_PROVIDER=openrouter")
+    if not AI_MODEL:
+        raise RuntimeError("Missing AI_MODEL or OPENROUTER_MODEL for AI_PROVIDER=openrouter")
 
     url = f"{OPENROUTER_BASE_URL.rstrip('/')}/chat/completions"
     headers = {

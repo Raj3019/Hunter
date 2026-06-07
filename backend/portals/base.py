@@ -25,6 +25,8 @@ PORTAL_LIMITS = {
     "hcl": 10,
 }
 
+COMPLETED_APPLICATION_STATUSES = ["applied", "viewed", "interview", "offer"]
+
 PORTAL_DELAYS = {
     "naukri": (30, 90),
     "foundit": (30, 90),
@@ -99,8 +101,14 @@ class SafeApplyManager:
                 return
 
             success = self._is_apply_success(result)
+            external_pending = bool(result.get("external_pending"))
             blocked = bool(result.get("blocked"))
-            status = "applied" if success else "blocked" if blocked else "failed"
+            status = (
+                "applied" if success else
+                "external_pending" if external_pending else
+                "blocked" if blocked else
+                "failed"
+            )
             reason = self._result_notes(result)
 
             self.db.table("applications").insert({
@@ -111,10 +119,11 @@ class SafeApplyManager:
                 "apply_mode": result.get("apply_mode", "manual"),
                 "pre_apply_check": result.get("pre_apply_check") or {},
                 "portal_response": result.get("portal_response") or result,
+                "external_apply_url": result.get("external_apply_url") or self._job_value(job, "external_apply_url"),
                 "tailored_resume_url": tailored_resume_url,
                 "resume_version": result.get("resume_version") or resume_version,
                 "blocked_reason": reason if blocked else "",
-                "failed_reason": reason if not success and not blocked else "",
+                "failed_reason": reason if not success and not blocked and not external_pending else "",
                 "notes": reason,
             }).execute()
         except Exception as exc:
@@ -154,7 +163,7 @@ class SafeApplyManager:
             ).eq("user_id", user_id).eq("portal", portal).gte(
                 "applied_at",
                 today_start,
-            ).execute()
+            ).in_("status", COMPLETED_APPLICATION_STATUSES).execute()
             return result.count or 0
         except Exception as exc:
             logger.error("Failed to get today's count for %s: %s", portal, exc)
@@ -189,6 +198,9 @@ class SafeApplyManager:
                 job.has_questionnaire if hasattr(job, "has_questionnaire")
                 else job.get("has_questionnaire", False)
             ),
+            "apply_method": self._job_value(job, "apply_method", "unknown"),
+            "external_apply_url": self._job_value(job, "external_apply_url", ""),
+            "portal_metadata": self._job_value(job, "portal_metadata", {}) or {},
         }
 
         created = self.db.table("jobs").upsert(
@@ -209,6 +221,8 @@ class SafeApplyManager:
     def _is_apply_success(self, result: dict) -> bool:
         if result.get("success") is True:
             return True
+        if result.get("external_pending"):
+            return False
         if result.get("statusCode") == 0:
             jobs = result.get("jobs") or []
             if any(job.get("status") == 200 for job in jobs if isinstance(job, dict)):
@@ -217,6 +231,9 @@ class SafeApplyManager:
             if any(status == 200 for status in apply_status.values()):
                 return True
         return False
+
+    def _is_external_pending(self, result: dict) -> bool:
+        return bool(result.get("external_pending"))
 
     def _result_notes(self, result: dict) -> str:
         if result.get("reason"):
@@ -235,6 +252,13 @@ class SafeApplyManager:
             if isinstance(item, dict) and item.get("response")
         )
         return " | ".join(messages)[:1000]
+
+    def _job_value(self, job, key: str, fallback=""):
+        if hasattr(job, key):
+            return getattr(job, key)
+        if isinstance(job, dict):
+            return job.get(key, fallback)
+        return fallback
 
 
 async def run_safe_apply_for_user(
@@ -262,7 +286,11 @@ async def run_safe_apply_for_user(
     manager.log_application(user_id, job, result, tailored_resume_url=tailored_resume_url)
 
     db_job_id = manager._get_or_create_db_job_id(job)
-    status = "applied" if manager._is_apply_success(result) else "failed"
+    status = (
+        "applied" if manager._is_apply_success(result) else
+        "external_pending" if manager._is_external_pending(result) else
+        "failed"
+    )
     if db_job_id:
         manager.update_job_match_status(user_id, db_job_id, status)
 

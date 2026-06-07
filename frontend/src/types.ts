@@ -8,7 +8,8 @@ export type JobStatus =
   | "skipped"
   | "blocked"
   | "failed"
-  | "needs_review";
+  | "needs_review"
+  | "external_pending";
 export type ApplicationStatus =
   | "fetched"
   | "approved"
@@ -20,10 +21,12 @@ export type ApplicationStatus =
   | "archived"
   | "blocked"
   | "failed"
-  | "needs_review";
+  | "needs_review"
+  | "external_pending";
 
 export interface JobMatch {
   id: string;
+  jobId?: string;
   title: string;
   company: string;
   portal: string;
@@ -36,10 +39,24 @@ export interface JobMatch {
   missingSkills: string[];
   note: string;
   jdSummary: string;
+  jdFullDescription?: string;
+  tailoredResumeApproved: boolean;
+  tailoredResumeVersion: string;
+  applyMethod?: string;
+  externalApplyUrl?: string;
+  persisted?: boolean;
+  recommendationBasis?: "resume_and_preferences" | "resume" | "preferences" | "search";
+  recommendationLabel?: string;
+  recommended?: boolean;
+  resumeAvailable?: boolean;
+  preferencesAvailable?: boolean;
+  preferenceScore?: number;
+  preferenceMatchedTerms?: string[];
 }
 
 export interface Application {
   id: string;
+  jobId?: string;
   title: string;
   company: string;
   portal: string;
@@ -51,4 +68,15 @@ export interface Application {
   resumeVersion: string;
   applyResponse: string;
   notes: string;
+  externalApplyUrl?: string;
+  externalApplyConfirmedAt?: string;
+}
+
+export interface SearchRunSummary {
+  query: string;
+  locations: string[];
+  fetchedCount: number;
+  savedCount: number;
+  recommendedCount: number;
+  minScore: number;
 }

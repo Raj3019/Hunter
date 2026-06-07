@@ -4,6 +4,11 @@
 
 The APScheduler job that runs automatically every day at 8am IST. For every user who has connected portals, it searches all their connected portals, stores job snapshots, scores the results with AI, deduplicates against already-seen jobs, and saves the matches above 60 to the database. Users wake up to a fresh, scored list in their Dashboard. No manual trigger required.
 
+This is not the top-bar search feature. User-triggered searching belongs to `17-manual-job-search.md` and `POST /api/jobs/search`. The scheduler and manual search should share discovery/scoring/upsert helpers, but their UX and trigger semantics are different:
+
+- Scheduler: background, preference-driven, runs at 8am IST, no user waiting on it.
+- Manual search: foreground, query-driven, starts when the user clicks Search or presses Enter.
+
 This scheduler fetches and scores only. It must not submit applications by itself. Auto-apply should run through a separate mode-aware apply runner that reads approved matches and user apply settings, then uses SafeApplyManager throttling.
 
 ## Prerequisites
@@ -17,6 +22,17 @@ This scheduler fetches and scores only. It must not submit applications by itsel
 ---
 
 ## Implementation Steps
+
+Before editing scheduler internals, extract shared discovery logic into a service that can be reused by `POST /api/jobs/search`:
+
+```text
+backend/services/job_discovery.py
+  load_user_search_context(user_id)
+  search_portals(...)
+  score_and_save_matches(...)
+```
+
+The scheduler should pass `source='scheduler'`. Manual search should pass `source='manual'`.
 
 ### Step 1 — `backend/scheduler/daily_fetch.py`
 
@@ -383,6 +399,8 @@ curl -X POST http://localhost:8000/api/admin/trigger-fetch \
 | LinkedIn fetch hangs | Playwright browser not closing | Add `asyncio.wait_for(search_linkedin_jobs(...), timeout=120)` |
 
 ## Challenges
+
+- **Do not use scheduler as manual search**: The admin trigger runs the entire daily fetch and should stay admin/testing-only. Normal users should use `POST /api/jobs/search`, which accepts their explicit query and returns a search summary.
 
 - **APScheduler + asyncio**: APScheduler's AsyncIOScheduler runs async jobs correctly, but the scheduler must be started with the running event loop. Always start it in the FastAPI `startup` event handler — not at module level.
 - **LinkedIn Playwright in scheduler**: Playwright launches a real browser during the scheduled fetch. This adds 15–30 seconds to the fetch time and uses ~200MB RAM. If this is a problem, move LinkedIn to a separate scheduler job that runs at a different time.

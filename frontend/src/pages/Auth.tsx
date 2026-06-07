@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { AlertTriangle } from "lucide-react";
 import { BrandMark } from "../components/BrandMark";
-import { apiErrorMessage, authAPI } from "../api/client";
+import { apiErrorMessage, authAPI, preferencesAPI, resumeAPI } from "../api/client";
 
 type AuthMode = "login" | "register" | "forgot";
 
@@ -33,7 +33,8 @@ export function Auth() {
       const token = response.data?.access_token;
       if (token) {
         localStorage.setItem("access_token", token);
-        navigate((location.state as { from?: string } | null)?.from || "/dashboard", { replace: true });
+        const target = (location.state as { from?: string } | null)?.from;
+        navigate(target || await firstRunRoute(), { replace: true });
         return;
       }
 
@@ -91,4 +92,21 @@ export function Auth() {
       </section>
     </main>
   );
+}
+
+async function firstRunRoute(): Promise<string> {
+  try {
+    const [preferencesResponse, resumeReady] = await Promise.all([
+      preferencesAPI.get().catch(() => ({ data: {} })),
+      resumeAPI.getParsed().then(() => true).catch(() => false),
+    ]);
+    const preferences = preferencesResponse.data || {};
+    const hasPreferences = ["skills", "job_titles", "locations", "work_type"].some((key) => {
+      const value = preferences[key];
+      return Array.isArray(value) && value.length > 0;
+    });
+    return resumeReady && hasPreferences ? "/dashboard" : "/onboarding";
+  } catch {
+    return "/onboarding";
+  }
 }

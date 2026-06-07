@@ -4,13 +4,14 @@ import { StatusPill } from "../components/StatusPill";
 import { apiErrorMessage, preferencesAPI, resumeAPI } from "../api/client";
 import { joinList, splitList } from "../api/mappers";
 
-const tabs = ["Preferences", "Apply Safety", "Resume", "AI Provider", "Account"] as const;
+const tabs = ["Preferences", "Apply Safety", "Resume", "Account"] as const;
 type SettingsTab = (typeof tabs)[number];
 
 export function Settings() {
   const [activeTab, setActiveTab] = useState<SettingsTab>("Preferences");
   const [saved, setSaved] = useState("");
   const [preferences, setPreferences] = useState({
+    skills: "React, TypeScript, Python, FastAPI",
     jobTitles: "Frontend Engineer, React Developer",
     locations: "Bengaluru, Pune, Remote India",
     workType: "Hybrid, Remote",
@@ -19,8 +20,9 @@ export function Settings() {
     avoid: "Night shifts, unpaid tests",
   });
   const [safeApply, setSafeApply] = useState({ start: "09:00", end: "20:00", dailyLimit: 10, minScore: 75, autoEnabled: false });
-  const [provider, setProvider] = useState("Claude Sonnet 4");
-  const [resumeVersion, setResumeVersion] = useState("Base resume + approved tailored drafts");
+  const [allowedPortals, setAllowedPortals] = useState<string[]>([]);
+  const [resumeVersion, setResumeVersion] = useState("");
+  const [resumeLoaded, setResumeLoaded] = useState(false);
 
   useEffect(() => {
     async function loadSettings() {
@@ -33,6 +35,7 @@ export function Settings() {
         if (preferencesResponse.status === "fulfilled") {
           const data = preferencesResponse.value.data || {};
           setPreferences({
+            skills: joinList(data.skills),
             jobTitles: joinList(data.job_titles),
             locations: joinList(data.locations),
             workType: joinList(data.work_type),
@@ -47,9 +50,11 @@ export function Settings() {
             minScore: Number(data.auto_apply_min_score || 75),
             autoEnabled: Boolean(data.auto_apply_enabled),
           });
+          setAllowedPortals(Array.isArray(data.auto_apply_allowed_portals) ? data.auto_apply_allowed_portals : []);
         }
 
         if (resumeResponse.status === "fulfilled") {
+          setResumeLoaded(true);
           setResumeVersion(`Uploaded resume - ${resumeResponse.value.data?.created_at ? new Date(resumeResponse.value.data.created_at).toLocaleDateString("en-IN") : "active"}`);
         }
       } catch (caught) {
@@ -68,6 +73,7 @@ export function Settings() {
     setSaved("");
     try {
       await preferencesAPI.save({
+        skills: splitList(preferences.skills),
         job_titles: splitList(preferences.jobTitles),
         locations: splitList(preferences.locations),
         work_type: splitList(preferences.workType),
@@ -75,11 +81,11 @@ export function Settings() {
         max_salary: parseNumber(preferences.salary, 1),
         experience_years: Number(preferences.experience || 0),
         avoid_companies: splitList(preferences.avoid),
-        apply_mode: safeApply.autoEnabled ? "auto" : "manual",
-        auto_apply_enabled: safeApply.autoEnabled,
+        apply_mode: "manual",
+        auto_apply_enabled: false,
         auto_apply_daily_limit: safeApply.dailyLimit,
         auto_apply_min_score: safeApply.minScore,
-        auto_apply_allowed_portals: [],
+        auto_apply_allowed_portals: allowedPortals,
         safe_apply_start_time: safeApply.start,
         safe_apply_end_time: safeApply.end,
         require_tailored_resume_approval: true,
@@ -125,9 +131,10 @@ export function Settings() {
       <section className="air-surface rounded-lg p-5">
         {activeTab === "Preferences" && (
           <>
-            <SectionHeader title="Preferences" body="These values drive daily fetch, AI scoring, avoid checks, and default filters." />
+            <SectionHeader title="Preferences" body="These values drive job fetching. Hunter then scores each fetched job against your resume." />
             <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               {[
+                ["skills", "Skills"],
                 ["jobTitles", "Job titles"],
                 ["locations", "Locations"],
                 ["workType", "Work type"],
@@ -153,21 +160,14 @@ export function Settings() {
 
         {activeTab === "Apply Safety" && (
           <>
-            <SectionHeader title="Apply Safety" body="Hunter checks these rules instantly when you click Apply now." />
-            <div className="mt-5 grid gap-4 md:grid-cols-5">
-              <label className="text-sm">Start<input type="time" value={safeApply.start} onChange={(event) => setSafeApply((current) => ({ ...current, start: event.target.value }))} className="terminal-field mt-1 h-10 w-full rounded-md px-3" /></label>
-              <label className="text-sm">End<input type="time" value={safeApply.end} onChange={(event) => setSafeApply((current) => ({ ...current, end: event.target.value }))} className="terminal-field mt-1 h-10 w-full rounded-md px-3" /></label>
-              <label className="text-sm">Daily limit<input type="number" value={safeApply.dailyLimit} onChange={(event) => setSafeApply((current) => ({ ...current, dailyLimit: Number(event.target.value) }))} className="terminal-field mt-1 h-10 w-full rounded-md px-3" /></label>
-              <label className="text-sm">Min score<input type="number" value={safeApply.minScore} onChange={(event) => setSafeApply((current) => ({ ...current, minScore: Number(event.target.value) }))} className="terminal-field mt-1 h-10 w-full rounded-md px-3" /></label>
-              <label className="flex items-end gap-2 text-sm"><input type="checkbox" checked={safeApply.autoEnabled} onChange={(event) => setSafeApply((current) => ({ ...current, autoEnabled: event.target.checked }))} className="mb-3" /> Auto apply</label>
-            </div>
+            <SectionHeader title="Portal Safety" body="Hunter opens original portal pages and records pending tasks. Auto-submit stays disabled for the MVP." />
             <div className="mt-5 grid gap-3 md:grid-cols-3">
-              <Info icon={ShieldCheck} label="Your approval" value="Required before Hunter submits" tone="success" />
-              <Info icon={CheckCircle} label="Duplicate check" value="Runs before each apply" tone="success" />
-              <Info icon={AlertTriangle} label="Apply window" value="Applying pauses outside your hours" tone="warning" />
+              <Info icon={ShieldCheck} label="Submission" value="You complete it on the portal" tone="success" />
+              <Info icon={CheckCircle} label="Tracker" value="Pending until you confirm" tone="success" />
+              <Info icon={AlertTriangle} label="Auto-submit" value="Dormant until verified official/native flows exist" tone="warning" />
             </div>
             <button type="button" onClick={savePreferences} className="air-button mt-5 h-10 bg-[var(--accent-primary)] px-4 text-white">
-              Save apply checks
+              Save portal workflow
             </button>
           </>
         )}
@@ -177,25 +177,9 @@ export function Settings() {
             <SectionHeader title="Resume" body="The active resume powers parsing, matching, tailoring, and application Q&A." />
             <div className="mt-5 grid gap-4 md:grid-cols-[1fr_260px]">
               <label className="text-sm">Active resume version
-                <input value={resumeVersion} onChange={(event) => setResumeVersion(event.target.value)} className="terminal-field mt-1 h-10 w-full rounded-md px-3" />
+                <input value={resumeLoaded ? resumeVersion : "No resume uploaded yet"} readOnly className="terminal-field mt-1 h-10 w-full rounded-md px-3 text-[var(--text-muted)]" />
               </label>
-              <Info icon={FileText} label="Parse status" value="Parsed 98% - 2m ago" tone="success" />
-            </div>
-          </>
-        )}
-
-        {activeTab === "AI Provider" && (
-          <>
-            <SectionHeader title="AI Provider" body="Provider secrets remain backend-only. The UI shows configuration status, never raw keys." />
-            <div className="mt-5 grid gap-4 md:grid-cols-2">
-              <label className="text-sm">Provider/model
-                <select value={provider} onChange={(event) => setProvider(event.target.value)} className="terminal-field mt-1 h-10 w-full rounded-md px-3">
-                  <option>Claude Sonnet 4</option>
-                  <option>OpenRouter configured model</option>
-                  <option>Not configured</option>
-                </select>
-              </label>
-              <Info icon={provider === "Not configured" ? AlertTriangle : CheckCircle} label="API key" value="Backend-only status, raw key never shown" tone={provider === "Not configured" ? "warning" : "success"} />
+              <Info icon={FileText} label="Parse status" value={resumeLoaded ? "Parsed and active" : "No resume uploaded"} tone={resumeLoaded ? "success" : "warning"} />
             </div>
           </>
         )}
