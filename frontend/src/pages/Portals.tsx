@@ -2,6 +2,7 @@ import { AlertTriangle, CheckCircle, ExternalLink, Loader2, Save, ShieldCheck, T
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { StatusPill } from "../components/StatusPill";
+import { useToast } from "../components/Toast";
 import { apiErrorMessage, companyAccountsAPI, portalsAPI } from "../api/client";
 import { formatDate } from "../api/mappers";
 
@@ -30,7 +31,14 @@ const basePortals: PortalState[] = [
     checked: "Not connected",
     profile: "Sign in once to enable personalized recommendations and apply. Hunter keeps the session refreshed; public search works either way.",
   },
-  { key: "foundit", name: "Foundit", kind: "Token", status: "not_connected", checked: "Not connected" },
+  {
+    key: "foundit",
+    name: "Foundit",
+    kind: "Login",
+    status: "not_connected",
+    checked: "Not connected",
+    profile: "Sign in once so Hunter keeps the session refreshed and auto-tracks which jobs you've applied to. Public search works either way.",
+  },
   { key: "internshala", name: "Internshala", kind: "Browser", status: "manual", checked: "Manual session" },
   { key: "linkedin", name: "LinkedIn", kind: "Browser", status: "manual", checked: "Manual session" },
   { key: "workday", name: "Workday", kind: "Browser", status: "manual", checked: "Manual session" },
@@ -78,7 +86,10 @@ export function Portals() {
   const [naukriConnect, setNaukriConnect] = useState<ConnectSession | null>(null);
   const [naukriCreds, setNaukriCreds] = useState({ username: "", password: "" });
   const [naukriSaving, setNaukriSaving] = useState(false);
-  const [message, setMessage] = useState("");
+  const [founditCreds, setFounditCreds] = useState({ username: "", password: "" });
+  const [founditSaving, setFounditSaving] = useState(false);
+  const [founditAdvanced, setFounditAdvanced] = useState(false);
+  const toast = useToast();
 
   const loadPortalStatus = async () => {
     try {
@@ -91,12 +102,12 @@ export function Portals() {
         basePortals.map((portal) => {
           const row = livePortals[portal.key];
           if (!row) return portal;
-          if (portal.key === "naukri") {
-            const expiredNaukri = Boolean(row.requires_reconnect) || String(row.connection_status) === "expired";
+          if (portal.key === "naukri" || portal.key === "foundit") {
+            const expired = Boolean(row.requires_reconnect) || String(row.connection_status) === "expired";
             return {
               ...portal,
-              status: expiredNaukri ? "expired" : "connected",
-              checked: expiredNaukri ? "Sign in again" : row.username ? `Signed in as ${row.username}` : "Login saved",
+              status: expired ? "expired" : "connected",
+              checked: expired ? "Sign in again" : row.username ? `Signed in as ${row.username}` : "Login saved",
               profile: row.status_message || portal.profile,
             };
           }
@@ -116,7 +127,7 @@ export function Portals() {
       }
       setCompanyAccounts(accounts);
     } catch (caught) {
-      setMessage(apiErrorMessage(caught, "Could not load portal status."));
+      toast.error(apiErrorMessage(caught, "Could not load portal status."));
     }
   };
 
@@ -136,19 +147,18 @@ export function Portals() {
 
   const saveNaukriCredentials = async () => {
     if (!naukriCreds.username.trim() || !naukriCreds.password) {
-      setMessage("Enter your Naukri email and password to sign in.");
+      toast.error("Enter your Naukri email and password to sign in.");
       return;
     }
     setNaukriSaving(true);
-    setMessage("Signing in to Naukri...");
     try {
       const response = await portalsAPI.saveNaukriCredentials(naukriCreds.username.trim(), naukriCreds.password);
       setNaukriCreds({ username: "", password: "" });
       setActivePortal(null);
-      setMessage(`Naukri connected as ${response.data?.username || "your account"}. Hunter keeps this session refreshed automatically.`);
+      toast.success(`Naukri connected as ${response.data?.username || "your account"}. Hunter keeps this session refreshed automatically.`);
       await loadPortalStatus();
     } catch (caught) {
-      setMessage(apiErrorMessage(caught, "Could not sign in to Naukri."));
+      toast.error(apiErrorMessage(caught, "Could not sign in to Naukri."));
     } finally {
       setNaukriSaving(false);
     }
@@ -158,24 +168,55 @@ export function Portals() {
     if (!window.confirm("Disconnect Naukri? Your saved credentials and session will be removed.")) return;
     try {
       await portalsAPI.disconnectNaukri();
-      setMessage("Naukri disconnected. Public search still works.");
+      toast.success("Naukri disconnected. Public search still works.");
       await loadPortalStatus();
     } catch (caught) {
-      setMessage(apiErrorMessage(caught, "Could not disconnect Naukri."));
+      toast.error(apiErrorMessage(caught, "Could not disconnect Naukri."));
+    }
+  };
+
+  const saveFounditCredentials = async () => {
+    if (!founditCreds.username.trim() || !founditCreds.password) {
+      toast.error("Enter your Foundit email and password to sign in.");
+      return;
+    }
+    setFounditSaving(true);
+    try {
+      const response = await portalsAPI.saveFounditCredentials(founditCreds.username.trim(), founditCreds.password);
+      setFounditCreds({ username: "", password: "" });
+      setFounditAdvanced(false);
+      setActivePortal(null);
+      toast.success(`Foundit connected as ${response.data?.username || "your account"}. Hunter keeps this session refreshed and tracks your applies automatically.`);
+      await loadPortalStatus();
+    } catch (caught) {
+      toast.error(apiErrorMessage(caught, "Could not sign in to Foundit."));
+    } finally {
+      setFounditSaving(false);
+    }
+  };
+
+  const disconnectFoundit = async () => {
+    if (!window.confirm("Disconnect Foundit? Your saved credentials and session will be removed.")) return;
+    try {
+      await portalsAPI.disconnectFoundit();
+      toast.success("Foundit disconnected. Public search still works.");
+      await loadPortalStatus();
+    } catch (caught) {
+      toast.error(apiErrorMessage(caught, "Could not disconnect Foundit."));
     }
   };
 
   const startNaukriConnect = async () => {
-    setMessage("Opening Naukri login. Search still works without this; use the browser window only if you want to save a Naukri session.");
+    toast.info("Opening Naukri login. Search still works without this; use the browser window only if you want to save a Naukri session.");
     try {
       const response = await portalsAPI.startNaukriConnect();
       const connection = response.data?.connection as ConnectSession;
       setNaukriConnect(connection);
       setActivePortal(null);
-      if (connection?.message) setMessage(connection.message);
+      if (connection?.message) toast.info(connection.message);
       if (connection?.state === "connected") await loadPortalStatus();
     } catch (caught) {
-      setMessage(apiErrorMessage(caught, "Could not start Naukri browser login."));
+      toast.error(apiErrorMessage(caught, "Could not start Naukri browser login."));
     }
   };
 
@@ -185,13 +226,13 @@ export function Portals() {
       const connection = response.data?.connection as ConnectSession;
       setNaukriConnect(connection);
       if (connection?.state === "connected") {
-        setMessage("Naukri browser login saved. Jobs search still uses the public search path by default.");
+        toast.success("Naukri browser login saved. Jobs search still uses the public search path by default.");
         await loadPortalStatus();
       } else if (connection?.state === "failed" || connection?.state === "expired") {
-        setMessage(connection.message || "Naukri browser login did not complete.");
+        toast.error(connection.message || "Naukri browser login did not complete.");
       }
     } catch (caught) {
-      setMessage(apiErrorMessage(caught, "Could not check Naukri browser login status."));
+      toast.error(apiErrorMessage(caught, "Could not check Naukri browser login status."));
     }
   };
 
@@ -203,7 +244,7 @@ export function Portals() {
 
   const saveTokenPortal = async (portal: PortalState) => {
     if (!tokenDraft || !profileDraft) {
-      setMessage("Enter both profile id and bearer token before saving.");
+      toast.error("Enter both profile id and bearer token before saving.");
       return;
     }
 
@@ -213,50 +254,50 @@ export function Portals() {
       } else if (portal.key === "foundit") {
         await portalsAPI.saveFounditToken(tokenDraft, profileDraft);
       } else {
-        setMessage(`${portal.name} does not have a token save route yet.`);
+        toast.error(`${portal.name} does not have a token save route yet.`);
         return;
       }
 
-      setMessage(`${portal.name} connected. Token value is hidden after save.`);
+      toast.success(`${portal.name} connected. Token value is hidden after save.`);
       setTokenDraft("");
       setProfileDraft("");
       setActivePortal(null);
       await loadPortalStatus();
     } catch (caught) {
-      setMessage(apiErrorMessage(caught, `Could not connect ${portal.name}.`));
+      toast.error(apiErrorMessage(caught, `Could not connect ${portal.name}.`));
     }
   };
 
   const confirmBrowserPortal = async (portal: PortalState) => {
     try {
       if (portal.key !== "linkedin") {
-        setMessage(`${portal.name} browser setup route is not available yet. LinkedIn can be confirmed from this page.`);
+        toast.info(`${portal.name} browser setup route is not available yet. LinkedIn can be confirmed from this page.`);
         return;
       }
       await portalsAPI.confirmLinkedIn();
-      setMessage(`${portal.name} browser session marked ready.`);
+      toast.success(`${portal.name} browser session marked ready.`);
       await loadPortalStatus();
     } catch (caught) {
-      setMessage(apiErrorMessage(caught, `Could not confirm ${portal.name}.`));
+      toast.error(apiErrorMessage(caught, `Could not confirm ${portal.name}.`));
     }
   };
 
   const removePortal = (portal: PortalState) => {
-    setMessage(`Disconnect route for ${portal.name} is not implemented yet.`);
+    toast.info(`Disconnect route for ${portal.name} is not implemented yet.`);
   };
 
   const saveCompany = async () => {
     if (!companyDraft.company || !companyDraft.username || !companyDraft.password) {
-      setMessage("Choose a company and enter username/password to save.");
+      toast.error("Choose a company and enter username/password to save.");
       return;
     }
     try {
       await companyAccountsAPI.save(companyDraft.company, companyDraft.username, companyDraft.password);
       setCompanyDraft({ company: "", username: "", password: "" });
-      setMessage("Company account saved. Password is encrypted by the backend and never shown here.");
+      toast.success("Company account saved. Password is encrypted by the backend and never shown here.");
       await loadPortalStatus();
     } catch (caught) {
-      setMessage(apiErrorMessage(caught, "Could not save company account."));
+      toast.error(apiErrorMessage(caught, "Could not save company account."));
     }
   };
 
@@ -264,10 +305,10 @@ export function Portals() {
     if (!window.confirm("Remove this saved company account?")) return;
     try {
       await companyAccountsAPI.delete(companyKey);
-      setMessage("Company account removed.");
+      toast.success("Company account removed.");
       await loadPortalStatus();
     } catch (caught) {
-      setMessage(apiErrorMessage(caught, "Could not remove company account."));
+      toast.error(apiErrorMessage(caught, "Could not remove company account."));
     }
   };
 
@@ -285,7 +326,6 @@ export function Portals() {
             <Metric label="Public/manual" value={portals.filter((portal) => portal.status === "public" || portal.status === "manual").length} />
           </div>
         </div>
-        {message && <p className="mt-4 rounded-lg bg-[var(--bg-elevated)] px-3 py-2 text-sm text-[var(--text-muted)]">{message}</p>}
       </section>
 
       <nav className="mb-4 overflow-x-auto rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] p-1 scrollbar-thin">
@@ -307,6 +347,7 @@ export function Portals() {
           <div>
             {portals.map((portal) => {
               const isNaukri = portal.key === "naukri";
+              const isFoundit = portal.key === "foundit";
               const isConnecting = isNaukri && isActiveConnect(naukriConnect);
               const displayStatus = isConnecting ? "connecting" : portal.status;
               const displayChecked = isConnecting
@@ -337,6 +378,11 @@ export function Portals() {
                             Search works
                           </span>
                         </>
+                      ) : isFoundit ? (
+                        <button type="button" onClick={() => setActivePortal(activePortal === "foundit" ? null : "foundit")} className="air-button h-9 border border-[var(--border-default)] px-3 text-[var(--text-primary)]">
+                          <ExternalLink size={14} />
+                          {portal.status === "expired" ? "Sign in again" : portal.status === "connected" ? "Reconnect" : "Sign in"}
+                        </button>
                       ) : portal.kind === "Token" ? (
                         <button type="button" onClick={() => setActivePortal(activePortal === portal.key ? null : portal.key)} className="air-button h-9 border border-[var(--border-default)] px-3 text-[var(--text-primary)]">
                           <ExternalLink size={14} />
@@ -353,7 +399,12 @@ export function Portals() {
                           <Trash2 size={14} />
                         </button>
                       )}
-                      {!isNaukri && portal.status === "connected" && (
+                      {isFoundit && (portal.status === "connected" || portal.status === "expired") && (
+                        <button type="button" onClick={disconnectFoundit} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-[var(--border-default)] text-[var(--text-muted)]" aria-label="Disconnect Foundit" title="Disconnect">
+                          <Trash2 size={14} />
+                        </button>
+                      )}
+                      {!isNaukri && !isFoundit && portal.status === "connected" && (
                         <button type="button" onClick={() => removePortal(portal)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-[var(--border-default)] text-[var(--text-muted)]" aria-label={`Remove ${portal.name}`} title="Remove">
                           <Trash2 size={14} />
                         </button>
@@ -378,6 +429,36 @@ export function Portals() {
                       <button type="button" onClick={startNaukriConnect} disabled={isConnecting} className="mt-3 text-xs text-[var(--text-muted)] underline underline-offset-2 disabled:opacity-70">
                         {isConnecting ? (naukriConnect?.state === "starting" ? "Opening browser..." : "Waiting for login...") : "Advanced: use a browser login window instead"}
                       </button>
+                    </div>
+                  )}
+
+                  {activePortal === "foundit" && isFoundit && (
+                    <div className="mt-4 rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] p-3">
+                      <div className="mb-3">
+                        <p className="text-sm font-semibold">Sign in to Foundit</p>
+                        <p className="text-xs text-[var(--text-muted)]">Your password is encrypted and never shown again. Hunter re-signs in automatically when the Foundit session expires, and uses this login to auto-detect which jobs you've applied to.</p>
+                      </div>
+                      <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+                        <input value={founditCreds.username} onChange={(event) => setFounditCreds((current) => ({ ...current, username: event.target.value }))} placeholder="Foundit email" autoComplete="username" className="terminal-field h-9 rounded-md px-3 text-sm" />
+                        <input value={founditCreds.password} onChange={(event) => setFounditCreds((current) => ({ ...current, password: event.target.value }))} placeholder="Foundit password" type="password" autoComplete="current-password" className="terminal-field h-9 rounded-md px-3 text-sm" />
+                        <button type="button" onClick={saveFounditCredentials} disabled={founditSaving} className="air-button h-9 bg-[var(--accent-primary)] px-3 text-white disabled:cursor-wait disabled:opacity-70">
+                          {founditSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                          {founditSaving ? "Signing in" : "Sign in"}
+                        </button>
+                      </div>
+                      <button type="button" onClick={() => setFounditAdvanced((value) => !value)} className="mt-3 text-xs text-[var(--text-muted)] underline underline-offset-2">
+                        {founditAdvanced ? "Hide advanced" : "Advanced: paste a bearer token instead"}
+                      </button>
+                      {founditAdvanced && (
+                        <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+                          <input value={profileDraft} onChange={(event) => setProfileDraft(event.target.value)} placeholder="Foundit user id" className="terminal-field h-9 rounded-md px-3 text-sm" />
+                          <input value={tokenDraft} onChange={(event) => setTokenDraft(event.target.value)} placeholder="Bearer token (hidden after save)" type="password" className="terminal-field h-9 rounded-md px-3 text-sm" />
+                          <button type="button" onClick={() => saveTokenPortal(portal)} className="air-button h-9 bg-[var(--accent-primary)] px-3 text-white">
+                            <Save size={14} />
+                            Save
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
 

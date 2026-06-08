@@ -9,6 +9,11 @@ from pydantic import BaseModel
 from core.auth import get_current_user_id
 from core.database import get_db
 from core.encryption import encrypt
+from portals.foundit.session import (
+    foundit_status,
+    login_with_foundit_credentials,
+    set_auth_failed as set_foundit_auth_failed,
+)
 from portals.naukri.connect import get_naukri_connect_status, start_naukri_connect
 from portals.naukri.session import login_with_credentials, naukri_status, set_auth_failed
 
@@ -29,6 +34,11 @@ class NaukriCredentialsIn(BaseModel):
 class FounditTokenIn(BaseModel):
     bearer_token: str
     user_id_str: str = ""
+
+
+class FounditCredentialsIn(BaseModel):
+    username: str
+    password: str
 
 
 @router.post("/naukri/token")
@@ -125,6 +135,56 @@ async def save_foundit_token(
     return {"success": True, "portal": "foundit"}
 
 
+@router.post("/foundit/credentials")
+async def save_foundit_credentials(
+    body: FounditCredentialsIn,
+    user_id: str = Depends(get_current_user_id),
+):
+    """Connect Foundit with credentials for a durable, auto-refreshing session.
+
+    The password is validated with a live login, encrypted immediately, and never
+    returned. Durable credentials are required for unattended applied-status sync,
+    since Foundit's bearer token lapses and the public search needs no login.
+    """
+    username = body.username.strip()
+    if not username or not body.password:
+        raise HTTPException(status_code=400, detail="Enter your Foundit email and password.")
+
+    try:
+        session = await asyncio.to_thread(
+            login_with_foundit_credentials, username, body.password,
+        )
+    except Exception as exc:
+        logger.warning("Foundit credential login failed for user %s: %s", user_id, exc)
+        raise HTTPException(
+            status_code=400,
+            detail="Could not sign in to Foundit with those credentials. Check your email/password and try again.",
+        ) from exc
+
+    encrypted = encrypt(body.password)
+    body.password = ""
+
+    db = get_db()
+    db.table("portal_tokens").upsert({
+        "user_id": user_id,
+        "portal": "foundit",
+        "bearer_token": session["bearer_token"],
+        "profile_id": session.get("profile_id") or None,
+        "username": username,
+        "password_encrypted": encrypted,
+    }, on_conflict="user_id,portal").execute()
+    set_foundit_auth_failed(db, user_id, False)
+
+    return {"success": True, "portal": "foundit", "username": username}
+
+
+@router.delete("/foundit")
+async def disconnect_foundit(user_id: str = Depends(get_current_user_id)):
+    db = get_db()
+    db.table("portal_tokens").delete().eq("user_id", user_id).eq("portal", "foundit").execute()
+    return {"success": True, "portal": "foundit", "disconnected": True}
+
+
 @router.post("/linkedin/setup")
 async def confirm_linkedin_setup(user_id: str = Depends(get_current_user_id)):
     db = get_db()
@@ -168,6 +228,8 @@ def _decorate_portal_statuses(rows: list[dict], user_id: str) -> list[dict]:
 
         if row.get("portal") == "naukri":
             safe_row.update(_check_naukri_status(row, user_id))
+        elif row.get("portal") == "foundit":
+            safe_row.update(foundit_status(row))
 
         decorated.append(safe_row)
     return decorated

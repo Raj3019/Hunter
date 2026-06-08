@@ -1,3 +1,4 @@
+import base64
 from typing import List
 
 from core.retry import with_retry
@@ -7,10 +8,42 @@ FOUNDIT_BASE = "https://www.foundit.in"
 SEARCH_URL = f"{FOUNDIT_BASE}/raven/api/public/search/v2/jobs"
 APPLY_URL = f"{FOUNDIT_BASE}/falcon/api/users/v9/jobs/apply"
 
+# Applied-jobs ("My Applies") endpoint — read-only, authenticated. Reverse-
+# engineered from Foundit's own frontend (the ``appliedJobs`` URL in their JS
+# bundle). The falcon gateway needs three things the public search does not:
+#   1. The RAW JWT in Authorization — Foundit stores the token base64-encoded
+#      (``base64(JWT + "::bearer:<ts>:")``); falcon rejects that with
+#      "JWT must have 3 tokens" and wants the decoded 3-part JWT.
+#   2. The numeric profile id in the ``MSUID`` cookie — otherwise the profile
+#      resolves to null ("PROFILE_NOT_FOUND ... for null").
+#   3. The ``x-source-site-context`` header (``rexmonster`` for foundit.in).
+# The server caps the page at 10 rows regardless of pageSize, so we page through
+# ``meta.paging.total``.
+APPLIED_HISTORY_URL = f"{FOUNDIT_BASE}/falcon/api/users/v2/jobs/applied"
+# Per-application status timeline (recruiter-side: viewed/shortlisted/…). Takes an
+# ``applicationId`` and is empty until a recruiter acts on the application.
+APPLICATION_STATUS_URL = f"{FOUNDIT_BASE}/falcon/api/users/v1/application-history"
+RIOME_URL = f"{FOUNDIT_BASE}/seeker-profile/api/rioMe"
+FOUNDIT_SITE_CONTEXT = "rexmonster"
+
+
+def _decode_falcon_jwt(raw_token: str) -> str:
+    """``base64(JWT + '::bearer:<ts>:')`` -> the raw 3-part JWT falcon expects."""
+    if not raw_token:
+        return ""
+    try:
+        decoded = base64.b64decode(raw_token + "=" * (-len(raw_token) % 4)).decode("utf-8", "ignore")
+    except Exception:
+        return raw_token
+    jwt = decoded.split("::")[0].strip()
+    return jwt if jwt.count(".") == 2 else raw_token
+
 
 class FounditJobClient:
     def __init__(self, auth):
+        self.auth = auth
         self.session = auth.session
+        self._msuid = None
 
     @with_retry(label="foundit-search")
     def search_jobs(
@@ -30,6 +63,138 @@ class FounditJobClient:
         response = self.session.get(SEARCH_URL, params=params)
         response.raise_for_status()
         return self._parse_jobs(response.json())
+
+    def _resolve_msuid(self) -> str:
+        """The numeric profile id falcon needs in the MSUID cookie (cached)."""
+        if self._msuid:
+            return self._msuid
+        response = self.session.get(RIOME_URL, timeout=20)
+        response.raise_for_status()
+        self._msuid = str((response.json() or {}).get("id") or "")
+        return self._msuid
+
+    def _prepare_falcon_request(self) -> dict:
+        """Set the MSSOAT/MSUID cookies falcon needs and return its headers.
+
+        Falcon wants the raw 3-part JWT in Authorization (the stored token is
+        base64-encoded), the numeric profile id in the MSUID cookie, and the
+        site-context header — see the module docstring on ``APPLIED_HISTORY_URL``.
+        """
+        raw_token = self.auth.bearer_token or self.session.cookies.get("MSSOAT") or ""
+        if raw_token:
+            self.session.cookies.set("MSSOAT", raw_token, domain="www.foundit.in")
+        self.session.cookies.set("MSUID", self._resolve_msuid(), domain="www.foundit.in")
+        return {
+            "Authorization": f"Bearer {_decode_falcon_jwt(raw_token)}",
+            "x-source-site-context": FOUNDIT_SITE_CONTEXT,
+            "x-language-code": "EN",
+        }
+
+    @with_retry(label="foundit-history")
+    def get_application_history(self, max_pages: int = 20) -> list:
+        """Read-only: the jobs the user has applied to on Foundit ("My Applies").
+
+        Returns a normalized list of ``{job_id, status_value, title, company,
+        application_id}``. Used to auto-detect applies without performing any
+        action on the account. The list endpoint carries no recruiter-side status,
+        so every row starts at "Applied"; the reconcile enriches matched rows to
+        viewed/interview via ``get_application_status(application_id)``.
+        """
+        headers = self._prepare_falcon_request()
+        records: list = []
+        page = 1
+        while page <= max_pages:
+            response = self.session.get(
+                APPLIED_HISTORY_URL,
+                params={"pageNumber": page, "pageSize": 50},
+                headers=headers,
+                timeout=20,
+            )
+            response.raise_for_status()
+            payload = response.json() or {}
+            batch = self._parse_application_history(payload)
+            records.extend(batch)
+            total = ((payload.get("meta") or {}).get("paging") or {}).get("total")
+            if not batch or (isinstance(total, int) and len(records) >= total):
+                break
+            page += 1
+        return records
+
+    @with_retry(label="foundit-app-status")
+    def get_application_status(self, application_id) -> str:
+        """Latest recruiter-side status for one application, or "" if none yet.
+
+        Reads ``/users/v1/application-history?applicationId=X`` (per-application
+        timeline). Most applications have an empty timeline until a recruiter acts,
+        in which case this returns "" and the caller keeps the default "Applied".
+        """
+        if not application_id:
+            return ""
+        headers = self._prepare_falcon_request()
+        response = self.session.get(
+            APPLICATION_STATUS_URL,
+            params={"applicationId": application_id},
+            headers=headers,
+            timeout=20,
+        )
+        response.raise_for_status()
+        events = (response.json() or {}).get("applicationHistory") or []
+        return self._latest_status(events)
+
+    @staticmethod
+    def _latest_status(events) -> str:
+        """Pull a human status label from the most recent timeline event.
+
+        The populated shape isn't documented (all sampled accounts had empty
+        timelines), so this probes the common status-ish keys defensively and
+        falls back to "" — which keeps the safe "Applied" default.
+        """
+        if not isinstance(events, list) or not events:
+            return ""
+        latest = events[-1]
+        if not isinstance(latest, dict):
+            return str(latest)
+        for key in ("status", "statusValue", "stage", "label", "name", "title", "action", "event", "type"):
+            value = latest.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+            if isinstance(value, dict):
+                for inner in ("label", "name", "value", "text"):
+                    if isinstance(value.get(inner), str) and value[inner].strip():
+                        return value[inner].strip()
+        return ""
+
+    def _parse_application_history(self, data: dict) -> list:
+        """Normalize the applied-jobs response into apply records.
+
+        Shape (per ``/falcon/api/users/v2/jobs/applied``):
+        ``{"data": [{"applicationData": {"applicationId"}, "jobDetails": {"jobId",
+        "title", "company": {"name"}}}], "meta": {"paging": {"total"}}}``.
+        Returns ``[{job_id, status_value, title, company, application_id}, ...]``.
+        """
+        items = data.get("data")
+        if not isinstance(items, list):
+            return []
+
+        records = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            details = item.get("jobDetails") or {}
+            job_id = str(details.get("jobId") or details.get("id") or "")
+            if not job_id:
+                continue
+            company = details.get("company")
+            company_name = company.get("name") if isinstance(company, dict) else (company or "")
+            records.append({
+                "job_id": job_id,
+                # Starts at "Applied"; reconcile may enrich to viewed/interview.
+                "status_value": "Applied",
+                "title": details.get("title") or "",
+                "company": company_name or "",
+                "application_id": (item.get("applicationData") or {}).get("applicationId"),
+            })
+        return records
 
     def apply_job(self, job: Job) -> dict:
         if (job.apply_method or "unknown").lower() == "external":

@@ -1,6 +1,7 @@
 import { AlertTriangle, CheckCircle, FileText, ShieldCheck, User, type LucideIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { StatusPill } from "../components/StatusPill";
+import { useToast } from "../components/Toast";
 import { apiErrorMessage, preferencesAPI, resumeAPI } from "../api/client";
 import { joinList, splitList } from "../api/mappers";
 
@@ -9,7 +10,7 @@ type SettingsTab = (typeof tabs)[number];
 
 export function Settings() {
   const [activeTab, setActiveTab] = useState<SettingsTab>("Preferences");
-  const [saved, setSaved] = useState("");
+  const toast = useToast();
   const [preferences, setPreferences] = useState({
     skills: "React, TypeScript, Python, FastAPI",
     jobTitles: "Frontend Engineer, React Developer",
@@ -58,7 +59,7 @@ export function Settings() {
           setResumeVersion(`Uploaded resume - ${resumeResponse.value.data?.created_at ? new Date(resumeResponse.value.data.created_at).toLocaleDateString("en-IN") : "active"}`);
         }
       } catch (caught) {
-        setSaved(apiErrorMessage(caught, "Could not load settings."));
+        toast.error(apiErrorMessage(caught, "Could not load settings."));
       }
     }
 
@@ -70,7 +71,6 @@ export function Settings() {
   };
 
   const savePreferences = async () => {
-    setSaved("");
     try {
       await preferencesAPI.save({
         skills: splitList(preferences.skills),
@@ -90,9 +90,9 @@ export function Settings() {
         safe_apply_end_time: safeApply.end,
         require_tailored_resume_approval: true,
       });
-      setSaved("Preferences saved.");
+      toast.success("Preferences saved.");
     } catch (caught) {
-      setSaved(apiErrorMessage(caught, "Could not save preferences."));
+      toast.error(apiErrorMessage(caught, "Could not save preferences."));
     }
   };
 
@@ -110,7 +110,6 @@ export function Settings() {
             <StatusPill label="Secrets hidden" tone="accent" />
           </div>
         </div>
-        {saved && <p className="mt-4 rounded-lg bg-[var(--bg-elevated)] px-3 py-2 text-sm text-[var(--text-muted)]">{saved}</p>}
       </section>
 
       <nav className="mb-4 overflow-x-auto rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] p-1 scrollbar-thin">

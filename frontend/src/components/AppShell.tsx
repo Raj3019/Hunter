@@ -17,6 +17,7 @@ import {
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { type FormEvent, useState } from "react";
 import { BrandMark } from "./BrandMark";
+import { useToast } from "./Toast";
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -66,6 +67,7 @@ export function AppShell({
   const [searchQuery, setSearchQuery] = useState("");
   const navigate = useNavigate();
   const location = useLocation();
+  const toast = useToast();
   const showGlobalSearch = location.pathname !== "/jobs";
   const syncBusy = syncState === "syncing" || autoSyncState === "syncing";
   const syncLabel = syncState === "done" ? "Updated" : autoSyncState === "paused" ? "Paused" : syncBusy ? "Syncing" : "Auto sync";
@@ -85,6 +87,7 @@ export function AppShell({
 
   const signOut = () => {
     localStorage.removeItem("access_token");
+    toast.success("Signed out.");
     navigate("/auth");
   };
 

@@ -111,7 +111,7 @@ class SafeApplyManager:
             )
             reason = self._result_notes(result)
 
-            self.db.table("applications").insert({
+            app_row = {
                 "user_id": user_id,
                 "job_id": db_job_id,
                 "portal": job.portal if hasattr(job, "portal") else job.get("portal"),
@@ -125,7 +125,16 @@ class SafeApplyManager:
                 "blocked_reason": reason if blocked else "",
                 "failed_reason": reason if not success and not blocked and not external_pending else "",
                 "notes": reason,
-            }).execute()
+            }
+            # Carry the resume-match score so the Tracker shows the same fit signal
+            # as the Jobs list. Only set when known so it never downgrades to 0.
+            try:
+                match_score = int(result.get("match_score") or 0)
+            except (TypeError, ValueError):
+                match_score = 0
+            if match_score:
+                app_row["match_score"] = match_score
+            self.db.table("applications").insert(app_row).execute()
         except Exception as exc:
             logger.error("Failed to log application to DB: %s", exc)
 

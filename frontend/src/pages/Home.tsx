@@ -87,7 +87,7 @@ export function Home() {
           {[
             { icon: BriefcaseBusiness, title: "Connected", body: "Naukri, Foundit, LinkedIn, Greenhouse, Workday, and company portals." },
             { icon: ShieldCheck, title: "Portal safety", body: "Opens original portal pages and waits for your confirmation before marking applied." },
-            { icon: Gauge, title: "Tracker", body: "Fetched, portal pending, applied, interview, rejected, and archived states." },
+            { icon: Gauge, title: "Tracker", body: "Awaiting confirmation, applied, viewed, interview, offer, and rejected states." },
           ].map((item) => (
             <div key={item.title} className="desk-panel rounded-lg p-4">
               <item.icon size={20} className="text-[var(--accent-primary)]" />

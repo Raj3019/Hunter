@@ -24,7 +24,7 @@ const STATUS_LABELS: Record<string, string> = {
   blocked: "Blocked",
   failed: "Apply failed",
   needs_review: "Needs review",
-  external_pending: "Portal pending",
+  external_pending: "Awaiting confirmation",
   fetched: "Fetched",
   viewed: "Viewed",
   interview: "Interview",

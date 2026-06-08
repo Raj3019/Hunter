@@ -86,7 +86,7 @@ export function Dashboard({ jobs, applications, onSkip, onQueue, onRefresh, appl
           {[
             ["Matches", jobs.length],
             ["Ready", jobs.filter((job) => job.status === "pending" || job.status === "approved").length],
-            ["Portal pending", jobs.filter((job) => job.status === "external_pending").length + applications.filter((app) => app.status === "external_pending").length],
+            ["Awaiting confirmation", jobs.filter((job) => job.status === "external_pending").length + applications.filter((app) => app.status === "external_pending").length],
           ].map(([label, value]) => (
             <div key={label} className="min-w-24 px-3 py-2">
               <p className="text-xs text-[var(--text-muted)]">{label}</p>
@@ -214,7 +214,7 @@ export function Dashboard({ jobs, applications, onSkip, onQueue, onRefresh, appl
             <div className="mt-4 grid gap-2 sm:grid-cols-4">
               {[
                 ["Needs review", applications.filter((app) => app.status === "needs_review" || app.status === "blocked").length],
-                ["Portal pending", applications.filter((app) => app.status === "external_pending").length],
+                ["Awaiting confirmation", applications.filter((app) => app.status === "external_pending").length],
                 ["Approved", applications.filter((app) => app.status === "approved").length],
                 ["Applied", applications.filter((app) => app.status === "applied").length],
               ].map(([label, value]) => (

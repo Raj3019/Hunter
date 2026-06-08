@@ -31,7 +31,7 @@ export function StatusPill({ label, tone = "neutral" }: StatusPillProps) {
 
 function friendlyLabel(label: string): string {
   const mapped: Record<string, string> = {
-    external_pending: "Portal pending",
+    external_pending: "Awaiting confirmation",
     needs_review: "Needs review",
     resume_and_preferences: "Resume + profile",
   };

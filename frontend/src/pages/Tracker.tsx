@@ -11,12 +11,12 @@ interface TrackerProps {
   onSyncApplied?: () => void | Promise<void>;
 }
 
-// Assist-only lifecycle: a job is opened on the portal (Portal pending), then the
-// user confirms the outcome (Applied / Failed); Naukri sync can advance applied
-// jobs to Viewed / Interview / Offer. Old auto-apply statuses (fetched, approved,
-// blocked, rejected, archived) are intentionally not surfaced as tabs.
+// Assist-only lifecycle: a job is opened on the portal (Awaiting confirmation),
+// then the user confirms the outcome (Applied / Failed); Naukri/Foundit sync can
+// advance applied jobs to Viewed / Interview / Offer. Old auto-apply statuses
+// (fetched, approved, blocked, rejected, archived) are intentionally not surfaced.
 const stages: Array<{ id: ApplicationStatus; label: string }> = [
-  { id: "external_pending", label: "Portal pending" },
+  { id: "external_pending", label: "Awaiting confirmation" },
   { id: "applied", label: "Applied" },
   { id: "viewed", label: "Viewed" },
   { id: "interview", label: "Interview" },

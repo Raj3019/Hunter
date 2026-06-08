@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { AlertTriangle } from "lucide-react";
 import { BrandMark } from "../components/BrandMark";
+import { useToast } from "../components/Toast";
 import { apiErrorMessage, authAPI, preferencesAPI, resumeAPI } from "../api/client";
 
 type AuthMode = "login" | "register" | "forgot";
@@ -13,6 +14,7 @@ export function Auth() {
   const [message, setMessage] = useState("");
   const navigate = useNavigate();
   const location = useLocation();
+  const toast = useToast();
 
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -33,6 +35,7 @@ export function Auth() {
       const token = response.data?.access_token;
       if (token) {
         localStorage.setItem("access_token", token);
+        toast.success(mode === "register" ? "Account created. Welcome to Hunter!" : "Signed in.");
         const target = (location.state as { from?: string } | null)?.from;
         navigate(target || await firstRunRoute(), { replace: true });
         return;

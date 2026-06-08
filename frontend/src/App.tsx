@@ -73,7 +73,7 @@ type AutoSyncState = "idle" | "syncing" | "paused";
 
 const AUTO_SYNC_INTERVAL_MS = 60_000;
 const PORTAL_HEALTH_AUTO_SYNC_INTERVAL_MS = 10 * 60_000;
-const NAUKRI_APPLY_SYNC_INTERVAL_MS = 5 * 60_000;
+const APPLY_SYNC_INTERVAL_MS = 5 * 60_000;
 
 export default function App() {
   const navigate = useNavigate();
@@ -101,8 +101,8 @@ export default function App() {
   const portalSyncInFlightRef = useRef(false);
   const lastPortalHealthSyncAtRef = useRef(0);
   const jobsRef = useRef<JobMatch[]>([]);
-  const lastNaukriSyncAtRef = useRef(0);
-  const naukriSyncInFlightRef = useRef(false);
+  const lastAppliedSyncAtRef = useRef(0);
+  const appliedSyncInFlightRef = useRef(false);
 
   useEffect(() => {
     jobsRef.current = jobs;
@@ -143,29 +143,37 @@ export default function App() {
     void refreshLiveData();
   }, [location.key, refreshLiveData]);
 
-  // Read-only: ask Naukri which jobs the user has applied to and auto-advance
-  // matching portal-pending tasks. Throttled; safe to call often.
-  const syncNaukriApplied = useCallback(async (force = false): Promise<void> => {
+  // Read-only: ask each connected portal which jobs the user has applied to and
+  // auto-advance matching portal-pending tasks. Throttled; safe to call often.
+  const syncAppliedStatus = useCallback(async (force = false): Promise<void> => {
     if (!isAuthed()) return;
-    if (naukriSyncInFlightRef.current) return;
-    if (!force && Date.now() - lastNaukriSyncAtRef.current < NAUKRI_APPLY_SYNC_INTERVAL_MS) return;
-    naukriSyncInFlightRef.current = true;
+    if (appliedSyncInFlightRef.current) return;
+    if (!force && Date.now() - lastAppliedSyncAtRef.current < APPLY_SYNC_INTERVAL_MS) return;
+    appliedSyncInFlightRef.current = true;
     try {
-      const response = await applicationsAPI.syncNaukri();
-      lastNaukriSyncAtRef.current = Date.now();
-      if ((response.data?.updated || 0) > 0) {
+      // Each sync is independent and read-only — one portal failing (e.g. not
+      // connected) must not block the others.
+      const results = await Promise.allSettled([
+        applicationsAPI.syncNaukri(),
+        applicationsAPI.syncFoundit(),
+      ]);
+      lastAppliedSyncAtRef.current = Date.now();
+      const anyUpdated = results.some(
+        (r) => r.status === "fulfilled" && (r.value.data?.updated || 0) > 0,
+      );
+      if (anyUpdated) {
         await refreshLiveData({ silent: true });
       }
     } catch {
-      // Best-effort and read-only (e.g. Naukri not connected) — ignore failures.
+      // Best-effort and read-only — ignore failures.
     } finally {
-      naukriSyncInFlightRef.current = false;
+      appliedSyncInFlightRef.current = false;
     }
   }, [refreshLiveData]);
 
   useEffect(() => {
-    void syncNaukriApplied(true);
-  }, [syncNaukriApplied]);
+    void syncAppliedStatus(true);
+  }, [syncAppliedStatus]);
 
   const refreshPortalHealth = useCallback(async (_options: RefreshOptions = {}): Promise<PortalIssue[]> => {
     if (!isAuthed()) return [];
@@ -205,11 +213,11 @@ export default function App() {
       if (Date.now() - lastPortalHealthSyncAtRef.current >= PORTAL_HEALTH_AUTO_SYNC_INTERVAL_MS) {
         await refreshPortalHealth({ silent: true });
       }
-      await syncNaukriApplied();
+      await syncAppliedStatus();
     } finally {
       setAutoSyncState("idle");
     }
-  }, [manualSearchLoading, refreshLiveData, refreshPortalHealth, syncNaukriApplied]);
+  }, [manualSearchLoading, refreshLiveData, refreshPortalHealth, syncAppliedStatus]);
 
   useEffect(() => {
     if (!isAuthed()) return undefined;
@@ -589,7 +597,7 @@ export default function App() {
         element={
           <PrivateRoute>
             <LiveShell {...shellProps}>
-              <Tracker applications={applications} onUpdate={updateApplication} onSyncApplied={() => syncNaukriApplied(true)} />
+              <Tracker applications={applications} onUpdate={updateApplication} onSyncApplied={() => syncAppliedStatus(true)} />
             </LiveShell>
           </PrivateRoute>
         }
@@ -866,7 +874,7 @@ function resolveApplyNotice(snapshot: LiveDataSnapshot, pending: PendingApply): 
     if (application.status === "external_pending") {
       return {
         tone: "warning",
-        title: "Portal confirmation needed",
+        title: "Awaiting confirmation",
         message: `${application.title} at ${application.company} must be completed on the original portal. Open Tracker to continue and confirm the result.`,
         showTrackerAction: true,
         action: "tracker",
@@ -894,7 +902,7 @@ function resolveApplyNotice(snapshot: LiveDataSnapshot, pending: PendingApply): 
   if (match?.status === "external_pending") {
     return {
       tone: "warning",
-        title: "Portal confirmation needed",
+        title: "Awaiting confirmation",
         message: `${match.title} at ${match.company} must be completed on the original portal. Open Tracker to continue and confirm the result.`,
       showTrackerAction: true,
       action: "tracker",
@@ -943,7 +951,7 @@ function portalName(portal: string): string {
 
 function applyStatusTitle(status: ApplicationStatus | JobMatch["status"]): string {
   if (status === "failed") return "Apply failed";
-  if (status === "external_pending") return "Portal confirmation needed";
+  if (status === "external_pending") return "Awaiting confirmation";
   if (status === "needs_review") return "Needs review";
   if (status === "blocked") return "Apply blocked";
   return "Apply status updated";
@@ -952,6 +960,7 @@ function applyStatusTitle(status: ApplicationStatus | JobMatch["status"]): strin
 function jobSnapshotPayload(job: JobMatch) {
   return {
     job_id: job.jobId || job.id.replace(/^search:[^:]+:/, ""),
+    score: job.score || 0,
     title: job.title,
     company: job.company,
     location: job.location,

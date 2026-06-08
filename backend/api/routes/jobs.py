@@ -43,6 +43,7 @@ class ManualSearchIn(BaseModel):
 
 class JobSnapshotIn(BaseModel):
     job_id: str
+    score: int = 0
     title: str = ""
     company: str = ""
     location: str = ""
@@ -146,6 +147,7 @@ async def approve_match(match_id: str, user_id: str = Depends(get_current_user_i
     if _requires_external_confirmation(job):
         result = _external_pending_result(job)
         result["apply_mode"] = "manual"
+        result["match_score"] = _int_or_zero(match.data.get("match_score"))
         result["pre_apply_check"] = {
             "ok": True,
             "apply_mode": "manual",
@@ -228,6 +230,7 @@ def _open_portal_for_snapshot(user_id: str, job_data: dict) -> dict:
         job=job,
         resume_artifact=resume_artifact,
         checks=checks,
+        match_score=_int_or_zero(job_data.get("score")),
     )
     return application
 
@@ -247,12 +250,20 @@ def _open_portal_for_match_data(db, user_id: str, match_data: dict) -> dict:
         job=job,
         resume_artifact=resume_artifact,
         checks=checks,
+        match_score=_int_or_zero(match_data.get("match_score")),
     )
     db.table("job_matches").update({"status": "external_pending"}).eq(
         "id",
         match_data["id"],
     ).eq("user_id", user_id).execute()
     return application
+
+
+def _int_or_zero(value) -> int:
+    try:
+        return max(0, int(float(value)))
+    except (TypeError, ValueError):
+        return 0
 
 
 def _record_portal_open(
@@ -263,6 +274,7 @@ def _record_portal_open(
     job: Job,
     resume_artifact: dict,
     checks: dict,
+    match_score: int = 0,
 ) -> dict:
     portal_url = _best_portal_url(job)
     if not portal_url:
@@ -296,6 +308,11 @@ def _record_portal_open(
         "failed_reason": "",
         "notes": "Waiting for user confirmation after opening the original portal page.",
     }
+    # Carry the resume-match score onto the application so the Tracker shows the
+    # same fit signal as the Jobs list. Only set when known so re-opening a job
+    # never downgrades a previously captured score to 0.
+    if match_score:
+        payload["match_score"] = match_score
 
     if existing_row and existing_row.get("status") in COMPLETED_APPLICATION_STATUSES:
         return {

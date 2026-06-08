@@ -56,6 +56,9 @@ export const portalsAPI = {
     api.post("/api/portals/naukri/token", { bearer_token, profile_id }),
   saveFounditToken: (bearer_token: string, user_id_str: string) =>
     api.post("/api/portals/foundit/token", { bearer_token, user_id_str }),
+  saveFounditCredentials: (username: string, password: string) =>
+    api.post("/api/portals/foundit/credentials", { username, password }),
+  disconnectFoundit: () => api.delete("/api/portals/foundit"),
   confirmLinkedIn: () => api.post("/api/portals/linkedin/setup"),
 };
 
@@ -88,6 +91,7 @@ export const applicationsAPI = {
   updateStatus: (id: string, status: string, notes?: string) =>
     api.patch(`/api/applications/${id}`, { status, notes }),
   syncNaukri: () => api.post("/api/applications/sync-naukri"),
+  syncFoundit: () => api.post("/api/applications/sync-foundit"),
 };
 
 export const companyAccountsAPI = {

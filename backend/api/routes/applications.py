@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 from core.auth import get_current_user_id
 from core.database import NULL_RESULT, get_db
+from services.foundit_apply_sync import reconcile_foundit_applications
 from services.naukri_apply_sync import reconcile_naukri_applications
 
 router = APIRouter()
@@ -60,6 +61,13 @@ async def sync_naukri_applications(user_id: str = Depends(get_current_user_id)):
     """Read-only: detect Naukri applies and advance matching pending tasks."""
     db = get_db()
     return await reconcile_naukri_applications(db, user_id)
+
+
+@router.post("/sync-foundit")
+async def sync_foundit_applications(user_id: str = Depends(get_current_user_id)):
+    """Read-only: detect Foundit applies and advance matching pending tasks."""
+    db = get_db()
+    return await reconcile_foundit_applications(db, user_id)
 
 
 @router.patch("/{app_id}")

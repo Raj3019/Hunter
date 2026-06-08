@@ -100,7 +100,7 @@ export function Jobs({ jobs, onSkip, onQueue, onRefresh, onSearch, searchLoading
             </button>
             )}
             <SummaryChip label="Jobs" value={displayedJobs.length} tone="success" />
-            <SummaryChip label="Portal pending" value={scopedJobs.filter((job) => job.status === "external_pending").length} tone="warning" />
+            <SummaryChip label="Awaiting confirmation" value={scopedJobs.filter((job) => job.status === "external_pending").length} tone="warning" />
           </div>
         </div>
 
