@@ -2,6 +2,7 @@ import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ArrowRight, CheckCircle, LoaderCircle, Search, Send, Sparkles, XCircle } from "lucide-react";
 import { AppShell } from "./components/AppShell";
+import { useToast } from "./components/Toast";
 import { Home } from "./pages/Home";
 import { Auth } from "./pages/Auth";
 import { Onboarding } from "./pages/Onboarding";
@@ -78,6 +79,7 @@ const APPLY_SYNC_INTERVAL_MS = 5 * 60_000;
 export default function App() {
   const navigate = useNavigate();
   const location = useLocation();
+  const toast = useToast();
   const [jobs, setJobs] = useState<JobMatch[]>([]);
   const [applications, setApplications] = useState<Application[]>([]);
   const [loadingLiveData, setLoadingLiveData] = useState(false);
@@ -158,10 +160,19 @@ export default function App() {
         applicationsAPI.syncFoundit(),
       ]);
       lastAppliedSyncAtRef.current = Date.now();
-      const anyUpdated = results.some(
-        (r) => r.status === "fulfilled" && (r.value.data?.updated || 0) > 0,
+      const updatedCount = results.reduce(
+        (sum, r) => sum + (r.status === "fulfilled" ? r.value.data?.updated || 0 : 0),
+        0,
       );
-      if (anyUpdated) {
+      if (updatedCount > 0) {
+        // Auto-detected the apply: confirm it with a toast and clear any pending
+        // "Did you apply?" prompt, so the user never has to confirm manually.
+        setApplyNotice(null);
+        toast.success(
+          updatedCount === 1
+            ? "Application confirmed as applied ✓"
+            : `${updatedCount} applications confirmed as applied ✓`,
+        );
         await refreshLiveData({ silent: true });
       }
     } catch {
@@ -169,11 +180,17 @@ export default function App() {
     } finally {
       appliedSyncInFlightRef.current = false;
     }
-  }, [refreshLiveData]);
+  }, [refreshLiveData, toast]);
 
   useEffect(() => {
     void syncAppliedStatus(true);
   }, [syncAppliedStatus]);
+
+  // Always force a fresh applied-status sync when the user opens the Tracker, so
+  // statuses update on their own without needing the manual refresh button.
+  useEffect(() => {
+    if (location.pathname === "/tracker") void syncAppliedStatus(true);
+  }, [location.pathname, syncAppliedStatus]);
 
   const refreshPortalHealth = useCallback(async (_options: RefreshOptions = {}): Promise<PortalIssue[]> => {
     if (!isAuthed()) return [];
@@ -231,11 +248,15 @@ export default function App() {
         setAutoSyncState("paused");
         return;
       }
+      // Returning to the tab is exactly when the user is back from applying —
+      // force the applied-status sync (bypassing the throttle) so it confirms fast.
       void runSafeAutoSync();
+      void syncAppliedStatus(true);
     };
 
     const syncOnFocus = () => {
       void runSafeAutoSync();
+      void syncAppliedStatus(true);
     };
 
     document.addEventListener("visibilitychange", syncWhenVisible);
@@ -246,7 +267,7 @@ export default function App() {
       document.removeEventListener("visibilitychange", syncWhenVisible);
       window.removeEventListener("focus", syncOnFocus);
     };
-  }, [location.key, runSafeAutoSync]);
+  }, [location.key, runSafeAutoSync, syncAppliedStatus]);
 
   const refreshAfterBackgroundApply = useCallback((pending: PendingApply) => {
     const delays = [1500, 4000, 8000, 15000];
