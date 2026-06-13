@@ -2,6 +2,13 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Smooth in-page nav + offset so anchored sections clear the sticky 56px header
+   (otherwise clicking a nav link hides the section heading behind it). */
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: 4.5rem;
+}
+
 /* ============================================================================
    Design tokens — zinc monochrome + terracotta accent (Hunter v3 look).
    Components reference these via var(--…) or the brand-* Tailwind utilities.

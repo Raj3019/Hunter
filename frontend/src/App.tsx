@@ -782,7 +782,7 @@ function LiveShell({
   const [pageLoading, setPageLoading] = useState<PageLoadingState | null>(null);
   const blockingOverlay = searchLoading
     ? {
-        title: "Finding live Naukri jobs...",
+        title: "Finding live jobs...",
         description: `Fetching jobs from ${searchQuery ? `"${searchQuery}"` : "your saved profile"}, scoring them against your resume, and saving curated matches.`,
       }
     : loading

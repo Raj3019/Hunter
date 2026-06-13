@@ -10,7 +10,9 @@ import { setCurrentUserProfile } from "@/lib/session";
 type AuthMode = "login" | "register" | "forgot";
 
 export function Auth() {
-  const [mode, setMode] = useState<AuthMode>("login");
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [mode, setMode] = useState<AuthMode>(((location.state as { mode?: AuthMode } | null)?.mode) ?? "login");
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -18,8 +20,6 @@ export function Auth() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-  const navigate = useNavigate();
-  const location = useLocation();
   const toast = useToast();
 
   const isSignIn = mode === "login";

@@ -168,6 +168,8 @@ export function Home() {
   }
 
   const goAuth = () => navigate("/auth");
+  const goSignIn = () => navigate("/auth", { state: { mode: "login" } });
+  const goRegister = () => navigate("/auth", { state: { mode: "register" } });
   const activeJob = LIVE_DEMO_JOBS[selectedJobIndex];
 
   const handleSimulateCustomJob = () => {
@@ -234,16 +236,16 @@ export function Home() {
             <a href="#demo" className="transition-colors hover:text-zinc-950">Scoring Sandbox</a>
             <a href="#pipeline" className="transition-colors hover:text-zinc-950">Capabilities</a>
             <a href="#how-to-use" className="transition-colors hover:text-zinc-950">How to use</a>
-            <a href="#architecture" className="transition-colors hover:text-zinc-950">How it works</a>
+            <a href="#architecture" className="transition-colors hover:text-zinc-950">Safety</a>
             <a href="#faq" className="transition-colors hover:text-zinc-950">FAQ</a>
           </nav>
 
           <div className="flex items-center gap-2.5">
-            <button type="button" onClick={goAuth} className="rounded-xl px-3.5 py-2 text-xs font-bold text-zinc-650 transition-colors hover:bg-brand-chalk/50 hover:text-zinc-950">
+            <button type="button" onClick={goSignIn} className="rounded-xl px-3.5 py-2 text-xs font-bold text-zinc-650 transition-colors hover:bg-brand-chalk/50 hover:text-zinc-950">
               Sign In
             </button>
-            <button type="button" onClick={goAuth} className="flex h-9 items-center gap-1.5 rounded-xl bg-brand-pine px-4 py-2 text-xs font-bold tracking-tight text-white shadow-sm transition-all hover:bg-brand-pine-deep">
-              Launch Platform <ArrowRight className="h-3.5 w-3.5 text-white/90" />
+            <button type="button" onClick={goRegister} className="flex h-9 items-center gap-1.5 rounded-xl bg-brand-pine px-4 py-2 text-xs font-bold tracking-tight text-white shadow-sm transition-all hover:bg-brand-pine-deep">
+              Get Started <ArrowRight className="h-3.5 w-3.5 text-white/90" />
             </button>
           </div>
         </div>
@@ -271,7 +273,7 @@ export function Home() {
             </p>
 
             <div className="mx-auto flex max-w-md flex-col justify-center gap-3 pt-3 sm:flex-row">
-              <button type="button" onClick={goAuth} className="flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-brand-pine px-6 text-xs font-bold text-white shadow-md transition-all hover:scale-[1.01] active:scale-[0.99]">
+              <button type="button" onClick={goRegister} className="flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-brand-pine px-6 text-xs font-bold text-white shadow-md transition-all hover:scale-[1.01] active:scale-[0.99]">
                 Access Free Account <Sparkle className="h-3.5 w-3.5 text-white/90" />
               </button>
               <button type="button" onClick={goAuth} className="flex h-11 items-center justify-center gap-2 rounded-xl border border-brand-border bg-brand-linen px-6 text-xs font-bold text-zinc-800 shadow-sm transition-all hover:bg-brand-chalk">
@@ -435,7 +437,7 @@ export function Home() {
 
               <div className="flex items-center justify-between gap-4 border-t border-zinc-150 bg-brand-chalk/40 p-6">
                 <span className="font-mono text-[10px] font-semibold text-zinc-400">Ready to deploy real resumes?</span>
-                <button type="button" onClick={goAuth} className="flex items-center gap-1 rounded-xl bg-zinc-950 px-4 py-2 text-[11px] font-bold text-white shadow-sm transition-all hover:bg-zinc-900">
+                <button type="button" onClick={goRegister} className="flex items-center gap-1 rounded-xl bg-zinc-950 px-4 py-2 text-[11px] font-bold text-white shadow-sm transition-all hover:bg-zinc-900">
                   Start Scanning Portals <ArrowRight className="h-3.5 w-3.5" />
                 </button>
               </div>
@@ -570,38 +572,38 @@ export function Home() {
               <div className="relative flex flex-col justify-between space-y-6 overflow-hidden rounded-3xl border border-brand-border bg-brand-linen p-6 shadow-sm sm:p-8">
                 <div className="space-y-4">
                   <div>
-                    <span className="rounded border border-brand-border bg-zinc-150 px-2 py-0.5 font-mono text-[9px] font-bold text-zinc-700">LOCAL PRIVACY FIRST</span>
-                    <h3 className="mt-2 text-sm font-extrabold text-zinc-900">Zero-data retention engine</h3>
-                    <p className="text-[11px] font-medium text-zinc-400">Keep your professional credentials secure</p>
+                    <span className="rounded border border-brand-border bg-zinc-150 px-2 py-0.5 font-mono text-[9px] font-bold text-zinc-700">ASSIST-ONLY</span>
+                    <h3 className="mt-2 text-sm font-extrabold text-zinc-900">You apply, never a bot</h3>
+                    <p className="text-[11px] font-medium text-zinc-400">No automated submissions, ever</p>
                   </div>
-                  <p className="text-xs font-medium leading-relaxed text-zinc-500">Hunter coordinates parsed matrices securely. Your PDF content and salary profiles never touch external analytical platforms.</p>
+                  <p className="text-xs font-medium leading-relaxed text-zinc-500">Hunter scores each role against your resume and opens the original portal listing for you to submit. Nothing is auto-applied — so there's no ToS breach or account-ban risk.</p>
                   <hr className="border-brand-border" />
                   <ul className="space-y-2.5 text-[11.5px] font-medium text-zinc-650">
-                    <li className="flex items-center gap-2"><Check className="h-3.5 w-3.5 shrink-0 text-brand-clay" /> Encrypted credential storage</li>
-                    <li className="flex items-center gap-2"><Check className="h-3.5 w-3.5 shrink-0 text-brand-clay" /> Passwords never returned by the API</li>
-                    <li className="flex items-center gap-2"><Check className="h-3.5 w-3.5 shrink-0 text-brand-clay" /> Zero tracking scripts or ads</li>
+                    <li className="flex items-center gap-2"><Check className="h-3.5 w-3.5 shrink-0 text-brand-clay" /> You review and submit every application</li>
+                    <li className="flex items-center gap-2"><Check className="h-3.5 w-3.5 shrink-0 text-brand-clay" /> Opens the real portal in your own session</li>
+                    <li className="flex items-center gap-2"><Check className="h-3.5 w-3.5 shrink-0 text-brand-clay" /> Every application tracked end-to-end</li>
                   </ul>
                 </div>
-                <div className="inline-block w-full rounded-xl border border-zinc-150 bg-brand-chalk/40 p-2.5 text-center font-mono text-[10px] text-zinc-400">status_local: <b>ACTIVE_NODE</b></div>
+                <div className="inline-block w-full rounded-xl border border-zinc-150 bg-brand-chalk/40 p-2.5 text-center font-mono text-[10px] text-zinc-400">mode: <b>ASSIST_ONLY</b></div>
               </div>
 
               <div className="relative flex flex-col justify-between space-y-6 overflow-hidden rounded-3xl border border-brand-border bg-brand-linen p-6 shadow-sm sm:p-8">
                 <div className="space-y-4">
                   <div>
-                    <span className="rounded bg-zinc-950 px-2 py-0.5 font-mono text-[9px] font-bold text-white">SAFE APPLY</span>
-                    <h3 className="mt-2 text-sm font-extrabold text-zinc-900">Rate-limited & human-paced</h3>
-                    <p className="text-[11px] font-medium text-zinc-400">Apply windows and delays keep you safe</p>
+                    <span className="rounded bg-zinc-950 px-2 py-0.5 font-mono text-[9px] font-bold text-white">ENCRYPTED CREDENTIALS</span>
+                    <h3 className="mt-2 text-sm font-extrabold text-zinc-900">Your portal logins stay protected</h3>
+                    <p className="text-[11px] font-medium text-zinc-400">Encrypted on connect, never exposed</p>
                   </div>
-                  <p className="text-xs font-medium leading-relaxed text-zinc-500">Hunter opens the original portal listing and waits for your confirmation. Per-portal daily limits and human-like delays are enforced automatically.</p>
+                  <p className="text-xs font-medium leading-relaxed text-zinc-500">Portal passwords are encrypted the moment you connect and decrypted only at the instant of sign-in — never logged, never returned by the API, never shared with third parties.</p>
                   <hr className="border-brand-border" />
                   <ul className="space-y-2.5 text-[11.5px] font-medium text-zinc-650">
-                    <li className="flex items-center gap-2"><Check className="h-3.5 w-3.5 shrink-0 text-brand-clay" /> Apply only during safe hours</li>
-                    <li className="flex items-center gap-2"><Check className="h-3.5 w-3.5 shrink-0 text-brand-clay" /> No apply without your approval</li>
-                    <li className="flex items-center gap-2"><Check className="h-3.5 w-3.5 shrink-0 text-brand-clay" /> Every application tracked end-to-end</li>
+                    <li className="flex items-center gap-2"><Check className="h-3.5 w-3.5 shrink-0 text-brand-clay" /> Fernet-encrypted credential storage</li>
+                    <li className="flex items-center gap-2"><Check className="h-3.5 w-3.5 shrink-0 text-brand-clay" /> Passwords never returned by the API</li>
+                    <li className="flex items-center gap-2"><Check className="h-3.5 w-3.5 shrink-0 text-brand-clay" /> No tracking scripts or ads</li>
                   </ul>
                 </div>
-                <button type="button" onClick={goAuth} className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#18181b] py-3 text-xs font-bold text-white shadow-md transition-all hover:bg-[#27272a]">
-                  Configure Free Session <ArrowRight className="h-3.5 w-3.5 text-brand-ochre" />
+                <button type="button" onClick={goRegister} className="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-brand-pine text-xs font-bold text-white shadow-md transition-all hover:scale-[1.01] hover:bg-brand-pine-deep active:scale-[0.99]">
+                  Get started free <ArrowRight className="h-3.5 w-3.5" />
                 </button>
               </div>
             </div>
