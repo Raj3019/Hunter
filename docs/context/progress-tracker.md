@@ -12,6 +12,14 @@ Update this file after every meaningful implementation change.
 
 ## Completed
 
+- **Auth Password Visibility Toggle** (`frontend/src/pages/Auth.tsx`)
+  - Added accessible show/hide password controls to both Password and Confirm Password fields using eye icons.
+  - `npm run build` passes.
+
+- **Auth Tab Pill Transition Polish** (`frontend/src/pages/Auth.tsx`)
+  - Reworked the Sign In / Create Profile segmented control to use one persistent animated pill that slides between tabs instead of remounting per active tab.
+  - `npm run build` passes.
+
 - **Homepage Main-Step Flow And FAQ Control Polish** (`frontend/src/pages/Home.tsx`)
   - Replaced the FAQ accordion question-mark icon with a clearer chevron collapse control.
   - Reworked the homepage "How to use" section into a stronger six-step flow: create profile, upload resume, connect portals, set job rules, review matches, and apply/track.

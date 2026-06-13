@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { ArrowLeft, ArrowRight, Cpu, Lock, Mail, ShieldCheck, Target, UserRound } from "lucide-react";
+import { motion } from "motion/react";
+import { ArrowLeft, ArrowRight, Cpu, Eye, EyeOff, Lock, Mail, ShieldCheck, Target, UserRound } from "lucide-react";
 import { useToast } from "../components/Toast";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Spinner } from "@/components/ui/spinner";
@@ -17,6 +18,8 @@ export function Auth() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -24,6 +27,7 @@ export function Auth() {
 
   const isSignIn = mode === "login";
   const isRegister = mode === "register";
+  const activeAuthTab = isRegister ? "register" : "login";
   const authFeedback = error ? authErrorCopy(error, mode) : null;
 
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -102,10 +106,10 @@ export function Auth() {
             <div className="absolute left-0 top-0 h-24 w-24 rounded-full bg-zinc-800/10 blur-[48px]" />
 
             <div className="relative z-10 space-y-4">
-              <span className="rounded border border-zinc-800 bg-zinc-900 px-2 py-0.5 font-mono text-[9px] font-bold uppercase tracking-wider text-zinc-400">SCORING PIPELINE</span>
-              <h2 className="font-sans text-xl font-bold leading-snug tracking-tight text-white">The premium recruiter filter for builders.</h2>
+              <span className="rounded border border-zinc-800 bg-zinc-900 px-2 py-0.5 font-mono text-[9px] font-bold uppercase tracking-wider text-zinc-400">RESUME-MATCHED SEARCH</span>
+              <h2 className="font-sans text-xl font-bold leading-snug tracking-tight text-white">Find and track jobs that fit your resume.</h2>
               <p className="font-sans text-xs leading-relaxed text-zinc-400">
-                Get parsed intelligence reports instantly. Filter matches by key skill blocks, track scheduled interviews, and skip low-budget spam recruiters forever.
+                Hunter scores live roles from Naukri, Foundit and more against your resume, opens the original portal for you to apply, and tracks every application in one place.
               </p>
             </div>
 
@@ -113,44 +117,54 @@ export function Auth() {
               <div className="flex items-start gap-2.5">
                 <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-brand-clay" />
                 <div>
-                  <h4 className="font-sans text-xs font-bold">Strict portal integrity</h4>
-                  <p className="font-sans text-[10px] text-zinc-400">Hunter opens the original portal window securely; your direct logins stay safe.</p>
+                  <h4 className="font-sans text-xs font-bold">Assist-only, never a bot</h4>
+                  <p className="font-sans text-[10px] text-zinc-400">Hunter opens the original portal listing — you review and submit every application yourself, so your accounts stay safe.</p>
                 </div>
               </div>
               <div className="flex items-start gap-2.5">
                 <Cpu className="mt-0.5 h-3.5 w-3.5 shrink-0 text-zinc-400" />
                 <div>
-                  <h4 className="font-sans text-xs font-bold">Structured AI analyses</h4>
-                  <p className="font-sans text-[10px] text-zinc-400">Enrich, rank, and tailor resume copies dynamically against each job description.</p>
+                  <h4 className="font-sans text-xs font-bold">AI resume matching</h4>
+                  <p className="font-sans text-[10px] text-zinc-400">Every role is scored against your resume, and your resume is tailored per job description before you apply.</p>
                 </div>
               </div>
             </div>
 
-            <div className="mt-8 font-mono text-[9px] text-zinc-500">HUNTER WEB • JOB AUTOMATION SUITE</div>
+            <div className="mt-8 font-mono text-[9px] text-zinc-500">HUNTER WEB • ASSIST-ONLY JOB SEARCH</div>
           </div>
 
           {/* Form panel */}
           <div className="flex flex-col justify-center space-y-5 p-6 sm:p-8 md:col-span-7">
-            <div className="flex items-center justify-between rounded-xl border border-zinc-200/60 bg-zinc-50 p-1">
-              <button
-                type="button"
-                onClick={() => { setMode("login"); setError(""); setMessage(""); }}
-                className={`flex-1 rounded-lg py-1.5 text-xs font-bold transition-all ${isSignIn ? "border border-zinc-200/50 bg-white text-zinc-950 shadow-sm" : "text-zinc-500 hover:text-zinc-950"}`}
-              >
-                Sign In
-              </button>
-              <button
-                type="button"
-                onClick={() => { setMode("register"); setError(""); setMessage(""); }}
-                className={`flex-1 rounded-lg py-1.5 text-xs font-bold transition-all ${mode === "register" ? "border border-zinc-200/50 bg-white text-zinc-950 shadow-sm" : "text-zinc-500 hover:text-zinc-950"}`}
-              >
-                Create Profile
-              </button>
+            <div className="relative grid grid-cols-2 gap-1 overflow-hidden rounded-xl border border-zinc-200/60 bg-zinc-50 p-1">
+              <motion.span
+                aria-hidden="true"
+                animate={{ x: activeAuthTab === "register" ? "100%" : "0%" }}
+                transition={{ type: "spring", stiffness: 520, damping: 42, mass: 0.75 }}
+                className="absolute bottom-1 left-1 top-1 w-[calc(50%-0.25rem)] rounded-lg border border-zinc-200/60 bg-white shadow-sm"
+              />
+              {([
+                { key: "login", label: "Sign In" },
+                { key: "register", label: "Create Profile" },
+              ] as const).map((tab) => {
+                // Keep the pill on "Sign In" while in the forgot-password sub-flow.
+                const active = activeAuthTab === tab.key;
+                return (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    onClick={() => { setMode(tab.key); setError(""); setMessage(""); }}
+                    aria-pressed={active}
+                    className={`relative z-10 rounded-lg py-1.5 text-xs font-bold transition-colors duration-200 ${active ? "text-zinc-950" : "text-zinc-500 hover:text-zinc-950"}`}
+                  >
+                    {tab.label}
+                  </button>
+                );
+              })}
             </div>
 
             <div>
               <h3 className="font-sans text-lg font-bold tracking-tight text-zinc-950">
-                {mode === "forgot" ? "Reset access" : isSignIn ? "Welcome back" : "Create developer index"}
+                {mode === "forgot" ? "Reset access" : isSignIn ? "Welcome back" : "Create your account"}
               </h3>
               <p className="mt-1 text-xs text-zinc-500">
                 {mode === "forgot"
@@ -224,15 +238,25 @@ export function Auth() {
                   <div className="relative">
                     <Lock className="absolute left-3 top-2.5 h-3.5 w-3.5 text-zinc-400" />
                     <input
-                      type="password"
+                      type={showPassword ? "text" : "password"}
                       required
                       placeholder="••••••••"
                       value={password}
                       onChange={(e) => { setPassword(e.target.value); if (error) setError(""); }}
                       aria-invalid={Boolean(error)}
                       autoComplete={isRegister ? "new-password" : "current-password"}
-                      className={`w-full rounded-lg border py-2 pl-9 pr-3 font-sans text-xs focus:outline-none ${error ? "border-rose-200 bg-rose-50/30 focus:border-rose-400" : "border-zinc-200 focus:border-zinc-950"}`}
+                      className={`w-full rounded-lg border py-2 pl-9 pr-10 font-sans text-xs focus:outline-none ${error ? "border-rose-200 bg-rose-50/30 focus:border-rose-400" : "border-zinc-200 focus:border-zinc-950"}`}
                     />
+                    <button
+                      type="button"
+                      aria-label={showPassword ? "Hide password" : "Show password"}
+                      aria-pressed={showPassword}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => setShowPassword((visible) => !visible)}
+                      className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-950 focus:outline-none focus:ring-2 focus:ring-zinc-200"
+                    >
+                      {showPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                    </button>
                   </div>
                 </div>
               )}
@@ -243,15 +267,25 @@ export function Auth() {
                   <div className="relative">
                     <Lock className="absolute left-3 top-2.5 h-3.5 w-3.5 text-zinc-400" />
                     <input
-                      type="password"
+                      type={showConfirmPassword ? "text" : "password"}
                       required
                       placeholder="••••••••"
                       value={confirmPassword}
                       onChange={(e) => { setConfirmPassword(e.target.value); if (error) setError(""); }}
                       aria-invalid={Boolean(error)}
                       autoComplete="new-password"
-                      className={`w-full rounded-lg border py-2 pl-9 pr-3 font-sans text-xs focus:outline-none ${error ? "border-rose-200 bg-rose-50/30 focus:border-rose-400" : "border-zinc-200 focus:border-zinc-950"}`}
+                      className={`w-full rounded-lg border py-2 pl-9 pr-10 font-sans text-xs focus:outline-none ${error ? "border-rose-200 bg-rose-50/30 focus:border-rose-400" : "border-zinc-200 focus:border-zinc-950"}`}
                     />
+                    <button
+                      type="button"
+                      aria-label={showConfirmPassword ? "Hide confirm password" : "Show confirm password"}
+                      aria-pressed={showConfirmPassword}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => setShowConfirmPassword((visible) => !visible)}
+                      className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-950 focus:outline-none focus:ring-2 focus:ring-zinc-200"
+                    >
+                      {showConfirmPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                    </button>
                   </div>
                   <p className="text-[10px] font-medium text-zinc-400">Use at least 6 characters.</p>
                 </div>
@@ -265,7 +299,7 @@ export function Auth() {
                 {loading ? (
                   <Spinner className="size-3.5" />
                 ) : (
-                  <span>{mode === "forgot" ? "Send reset link" : isSignIn ? "Check Credentials" : "Register Profile"}</span>
+                  <span>{mode === "forgot" ? "Send reset link" : isSignIn ? "Sign In" : "Create Profile"}</span>
                 )}
                 {!loading && <ArrowRight className="h-3.5 w-3.5 text-brand-clay" />}
               </button>
@@ -281,7 +315,7 @@ export function Auth() {
       </main>
 
       <footer className="flex h-10 items-center justify-center border-t border-brand-border bg-white font-mono text-[9px] font-semibold uppercase tracking-wider text-zinc-400">
-        Hunter • Direct portal aggregator
+        Hunter • Assist-only job search
       </footer>
     </div>
   );
