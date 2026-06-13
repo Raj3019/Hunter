@@ -70,6 +70,7 @@ export interface Application {
   resumeVersion: string;
   applyResponse: string;
   notes: string;
+  companyLogoUrl?: string;
   externalApplyUrl?: string;
   externalApplyConfirmedAt?: string;
   arsScore?: number;

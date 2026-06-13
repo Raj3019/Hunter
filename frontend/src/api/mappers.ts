@@ -80,6 +80,7 @@ export function mapApplication(row: AnyRecord): Application {
   const failedReason = text(row.failed_reason);
   const notes = text(row.notes);
   const normalizedStatus = normalizeApplicationStatus(row.status);
+  const portal = text(row.portal || job.portal, "unknown");
   const warning =
     blockedReason ||
     failedReason ||
@@ -89,13 +90,14 @@ export function mapApplication(row: AnyRecord): Application {
         ? "Needs review before apply"
         : "");
   const portalResponse = asRecord(row.portal_response);
+  const logoCandidate = companyLogoValue(job) || companyLogoValue(row) || companyLogoValue(portalResponse);
 
   return {
     id: text(row.id),
     jobId: text(row.job_id || job.id),
     title: text(job.title, "Untitled role"),
     company: text(job.company, "Unknown company"),
-    portal: text(row.portal || job.portal, "unknown"),
+    portal,
     location: text(job.location, "Not specified"),
     status: normalizedStatus,
     score: numberValue(row.match_score ?? row.score),
@@ -104,7 +106,8 @@ export function mapApplication(row: AnyRecord): Application {
     resumeVersion: text(row.resume_version, "Uploaded resume"),
     applyResponse: portalResponseText(row.portal_response) || blockedReason || failedReason || notes || "No portal response recorded yet.",
     notes,
-    externalApplyUrl: normalizeApplyUrl(row.external_apply_url || job.external_apply_url || portalResponse.external_apply_url || job.apply_link, text(row.portal || job.portal, "unknown")),
+    companyLogoUrl: normalizeLogoUrl(logoCandidate, portal),
+    externalApplyUrl: normalizeApplyUrl(row.external_apply_url || job.external_apply_url || portalResponse.external_apply_url || job.apply_link, portal),
     externalApplyConfirmedAt: text(row.external_apply_confirmed_at),
     arsScore: optionalNumber(portalResponse.ars_score),
     companyRating: optionalNumber(portalResponse.company_rating),

@@ -21,6 +21,7 @@ interface DashboardProps {
   onRefresh: () => void | Promise<unknown>;
   applyingLocked?: boolean;
   recommendThreshold?: number;
+  userName?: string;
 }
 
 const STAGES = [
@@ -52,9 +53,11 @@ function PortalMark({ name, className = "" }: { name: string; className?: string
   return <span className={`font-mono text-[11px] font-bold uppercase tracking-tight text-zinc-700 ${className}`}>{name}</span>;
 }
 
-export function Dashboard({ jobs, applications, onRefresh, recommendThreshold = 60 }: DashboardProps) {
+export function Dashboard({ jobs, applications, onRefresh, recommendThreshold = 60, userName = "" }: DashboardProps) {
   const navigate = useNavigate();
   const [syncing, setSyncing] = useState(false);
+  const firstName = userName.trim().split(/\s+/)[0] || "";
+  const greeting = firstName ? `Welcome back, ${firstName}.` : "Welcome back.";
 
   const shortlistThreshold = Number(localStorage.getItem("hunter_shortlist_threshold")) || recommendThreshold;
   const totalMatches = jobs.filter((j) => j.score >= shortlistThreshold).length;
@@ -84,6 +87,11 @@ export function Dashboard({ jobs, applications, onRefresh, recommendThreshold = 
         .filter((a) => ["applied", "viewed", "interview", "offer", "external_pending"].includes(a.status))
         .slice(0, 5)
         .map((a) => ({
+          id: a.id,
+          company: a.company,
+          logoUrl: a.companyLogoUrl,
+          externalUrl: a.externalApplyUrl,
+          title: a.title,
           text:
             a.status === "interview"
               ? `Interview scheduled — ${a.company}`
@@ -116,7 +124,7 @@ export function Dashboard({ jobs, applications, onRefresh, recommendThreshold = 
           <Badge variant="secondary" className="gap-2 rounded-full font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-600">
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-brand-clay" /> Real-time sync active
           </Badge>
-          <h1 className="font-display text-2xl font-black leading-tight tracking-tight text-zinc-900 md:text-3xl">Welcome back.</h1>
+          <h1 className="font-display text-2xl font-black leading-tight tracking-tight text-zinc-900 md:text-3xl">{greeting}</h1>
           <p className="text-xs font-medium text-zinc-500">Your resume is up to date — we're scanning portals for roles that fit you.</p>
         </div>
         <Button onClick={runScan} disabled={syncing} className="h-11 shrink-0 rounded-xl bg-brand-pine px-5 text-xs font-bold hover:bg-brand-pine-deep">
@@ -259,21 +267,15 @@ export function Dashboard({ jobs, applications, onRefresh, recommendThreshold = 
           </CardHeader>
           <CardContent className="space-y-3">
             {activity.length ? (
-              activity.map((a, i) => (
-                <div key={i} className="flex items-start gap-3">
-                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-zinc-200 bg-zinc-100">
-                    {a.status === "interview" ? (
-                      <Calendar className="h-4 w-4 text-brand-clay" />
-                    ) : a.status === "offer" ? (
-                      <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                    ) : a.status === "viewed" ? (
-                      <Eye className="h-4 w-4 text-sky-600" />
-                    ) : (
-                      <Send className="h-4 w-4 text-zinc-600" />
-                    )}
+              activity.map((a) => (
+                <div key={a.id} className="flex items-start gap-3 rounded-xl p-1.5 transition-colors hover:bg-zinc-50">
+                  <span className="relative shrink-0">
+                    <CompanyLogo company={a.company} logoUrl={a.logoUrl} externalUrl={a.externalUrl} size="sm" />
+                    <ActivityStatusMark status={a.status} />
                   </span>
                   <div className="min-w-0 flex-1">
-                    <p className="text-[11px] font-semibold leading-snug text-zinc-800">{a.text}</p>
+                    <p className="truncate text-[11px] font-semibold leading-snug text-zinc-800">{a.text}</p>
+                    <p className="truncate text-[10px] font-medium leading-4 text-zinc-500">{a.title}</p>
                     <p className="font-mono text-[10px] text-zinc-400">{a.when}</p>
                   </div>
                 </div>
@@ -285,6 +287,31 @@ export function Dashboard({ jobs, applications, onRefresh, recommendThreshold = 
         </Card>
       </div>
     </div>
+  );
+}
+
+function ActivityStatusMark({ status }: { status: Application["status"] }) {
+  const className =
+    status === "interview"
+      ? "border-orange-100 bg-orange-50 text-brand-clay"
+      : status === "offer"
+        ? "border-emerald-100 bg-emerald-50 text-emerald-600"
+        : status === "viewed"
+          ? "border-sky-100 bg-sky-50 text-sky-600"
+          : "border-zinc-200 bg-white text-zinc-600";
+
+  return (
+    <span className={`absolute -bottom-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full border shadow-sm ${className}`}>
+      {status === "interview" ? (
+        <Calendar className="h-2.5 w-2.5" />
+      ) : status === "offer" ? (
+        <CheckCircle2 className="h-2.5 w-2.5" />
+      ) : status === "viewed" ? (
+        <Eye className="h-2.5 w-2.5" />
+      ) : (
+        <Send className="h-2.5 w-2.5" />
+      )}
+    </span>
   );
 }
 

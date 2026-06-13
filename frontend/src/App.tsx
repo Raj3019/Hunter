@@ -16,12 +16,13 @@ import { Jobs } from "./pages/Jobs";
 import { Tracker } from "./pages/Tracker";
 import { Portals } from "./pages/Portals";
 import { Settings } from "./pages/Settings";
-import { apiErrorMessage, applicationsAPI, jobsAPI, portalsAPI, preferencesAPI, CAREER_PORTAL_KEYS } from "./api/client";
+import { apiErrorMessage, applicationsAPI, authAPI, jobsAPI, portalsAPI, preferencesAPI, CAREER_PORTAL_KEYS } from "./api/client";
 
 // Single source for the recommend cutoff fallback (used only until the saved
 // preference loads / when none is set). The real value comes from Settings.
 const DEFAULT_RECOMMEND_THRESHOLD = 60;
 import { mapApplication, mapJobMatch } from "./api/mappers";
+import { setCurrentUserProfile } from "./lib/session";
 import type { Application, ApplicationStatus, JobMatch, SearchRunSummary } from "./types";
 import { isExternalApplyJob, openExternalApply } from "./utils/jobApply";
 
@@ -80,6 +81,10 @@ type RefreshOptions = {
 };
 
 type AutoSyncState = "idle" | "syncing" | "paused";
+type UserProfile = {
+  name: string;
+  email: string;
+};
 
 const AUTO_SYNC_INTERVAL_MS = 60_000;
 const PORTAL_HEALTH_AUTO_SYNC_INTERVAL_MS = 10 * 60_000;
@@ -114,6 +119,7 @@ export default function App() {
   const [applyNotice, setApplyNotice] = useState<ApplyNotice | null>(null);
   const [pendingApply, setPendingApply] = useState<PendingApply | null>(null);
   const [portalIssues, setPortalIssues] = useState<PortalIssue[]>([]);
+  const [userProfile, setUserProfile] = useState<UserProfile>({ name: "", email: "" });
   const [autoSyncState, setAutoSyncState] = useState<AutoSyncState>("idle");
   const [lastAutoSyncedAt, setLastAutoSyncedAt] = useState("");
   const activeApplyRef = useRef<string | null>(null);
@@ -128,6 +134,33 @@ export default function App() {
   useEffect(() => {
     jobsRef.current = jobs;
   }, [jobs]);
+
+  const refreshUserProfile = useCallback(async (): Promise<UserProfile | undefined> => {
+    if (!isAuthed()) {
+      setUserProfile({ name: "", email: "" });
+      return undefined;
+    }
+    try {
+      const response = await authAPI.me();
+      const next = {
+        name: text(response.data?.full_name),
+        email: text(response.data?.email),
+      };
+      setCurrentUserProfile({
+        userId: text(response.data?.user_id),
+        email: next.email,
+        fullName: next.name,
+      });
+      setUserProfile(next);
+      return next;
+    } catch {
+      return undefined;
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshUserProfile();
+  }, [location.key, refreshUserProfile]);
 
   const refreshLiveData = useCallback(async (options: RefreshOptions = {}): Promise<LiveDataSnapshot | undefined> => {
     if (!isAuthed()) return undefined;
@@ -624,10 +657,11 @@ export default function App() {
     portalIssues,
     autoSyncState,
     lastAutoSyncedAt,
+    userProfile,
     onSearch: runManualSearch,
     onDismissSearchNotice: () => setManualSearchNotice(""),
     onRetry: async () => {
-      await Promise.all([refreshLiveData(), refreshPortalHealth()]);
+      await Promise.all([refreshUserProfile(), refreshLiveData(), refreshPortalHealth()]);
     },
     onViewTracker: (status: ApplicationStatus = "applied") => navigate(`/tracker?status=${status}`),
     onReconnectPortal: (portal: string) => navigate(`/portals?connect=${portal}`),
@@ -654,7 +688,7 @@ export default function App() {
         element={
           <PrivateRoute>
             <LiveShell {...shellProps}>
-              <Dashboard jobs={jobs} applications={applications} onApprove={approveJob} onSkip={skipJob} onQueue={queueJob} onRefresh={refreshLiveData} applyingLocked={Boolean(pendingApply)} recommendThreshold={recommendThreshold} />
+              <Dashboard jobs={jobs} applications={applications} onApprove={approveJob} onSkip={skipJob} onQueue={queueJob} onRefresh={refreshLiveData} applyingLocked={Boolean(pendingApply)} recommendThreshold={recommendThreshold} userName={userProfile.name} />
             </LiveShell>
           </PrivateRoute>
         }
@@ -694,7 +728,7 @@ export default function App() {
         element={
           <PrivateRoute>
             <LiveShell {...shellProps}>
-              <Settings />
+              <Settings userProfile={userProfile} onProfileSaved={refreshUserProfile} />
             </LiveShell>
           </PrivateRoute>
         }
@@ -716,6 +750,7 @@ function LiveShell({
   portalIssues,
   autoSyncState,
   lastAutoSyncedAt,
+  userProfile,
   onSearch,
   onDismissSearchNotice,
   onRetry,
@@ -735,6 +770,7 @@ function LiveShell({
   portalIssues: PortalIssue[];
   autoSyncState: AutoSyncState;
   lastAutoSyncedAt: string;
+  userProfile: UserProfile;
   onSearch: (query: string, options?: ManualSearchOptions) => void | Promise<void>;
   onDismissSearchNotice: () => void;
   onRetry: () => void | Promise<unknown>;
@@ -766,6 +802,7 @@ function LiveShell({
       searchLoading={searchLoading}
       autoSyncState={autoSyncState}
       lastAutoSyncedAt={lastAutoSyncedAt}
+      userProfile={userProfile}
     >
       <PageLoadingContext.Provider value={setPageLoading}>
         {!blockingOverlay && portalIssues.length > 0 && <PortalReconnectBanner issue={portalIssues[0]} onReconnectPortal={onReconnectPortal} />}

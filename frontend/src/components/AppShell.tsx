@@ -20,7 +20,7 @@ import { useToast } from "./Toast";
 import { FamilyButton } from "./ui/family-button";
 import { Avatar, AvatarFallback } from "./ui/avatar";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "./ui/hover-card";
-import { currentUserEmail, currentUserName, userInitials } from "@/lib/session";
+import { clearCurrentUserProfile, currentUserEmail, currentUserName, userInitials } from "@/lib/session";
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -36,6 +36,10 @@ interface AppShellProps {
   searchLoading?: boolean;
   autoSyncState?: "idle" | "syncing" | "paused";
   lastAutoSyncedAt?: string;
+  userProfile?: {
+    name?: string;
+    email?: string;
+  };
 }
 
 const navItems = [
@@ -61,6 +65,7 @@ export function AppShell({
   searchLoading = false,
   autoSyncState = "idle",
   lastAutoSyncedAt = "",
+  userProfile,
 }: AppShellProps) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [syncState, setSyncState] = useState<"idle" | "syncing" | "done">("idle");
@@ -73,9 +78,9 @@ export function AppShell({
   const syncLabel = syncState === "done" ? "Updated" : autoSyncState === "paused" ? "Paused" : syncBusy ? "Syncing" : "Auto sync";
   const syncTimeLabel = formatLastSync(lastAutoSyncedAt);
   const syncTitle = `Auto sync refreshes saved matches and Tracker status. It never searches, applies, or opens portals.${syncTimeLabel ? ` Last refresh: ${syncTimeLabel}.` : ""} Click to refresh now.`;
-  const userEmail = currentUserEmail();
-  const userName = currentUserName();
-  const initials = userInitials();
+  const userEmail = userProfile?.email || currentUserEmail();
+  const userName = userProfile?.name || currentUserName();
+  const initials = userInitials(userName);
 
   const runSync = async () => {
     if (syncState === "syncing") return;
@@ -90,6 +95,7 @@ export function AppShell({
 
   const signOut = () => {
     localStorage.removeItem("access_token");
+    clearCurrentUserProfile();
     toast.success("Signed out.");
     navigate("/auth");
   };
@@ -254,8 +260,8 @@ export function AppShell({
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto md:min-h-0">
-          <div className="mx-auto w-full max-w-[1536px] p-4 sm:p-6 lg:p-8">{children}</div>
+        <div className="flex-1 overflow-x-hidden overflow-y-auto md:min-h-0">
+          <div className="mx-auto min-w-0 w-full max-w-[1536px] p-4 sm:p-6 lg:p-8">{children}</div>
         </div>
       </main>
 

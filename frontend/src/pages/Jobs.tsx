@@ -106,7 +106,7 @@ export function Jobs({ jobs, onSkip, onQueue, onRefresh, onSearch, searchLoading
   };
 
   return (
-    <div className="animate-fade-in-slide space-y-6">
+    <div className="min-w-0 animate-fade-in-slide space-y-6">
       {/* Header */}
       <div>
         <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-brand-clay">Jobs Shortlists</span>
@@ -208,9 +208,9 @@ export function Jobs({ jobs, onSkip, onQueue, onRefresh, onSearch, searchLoading
       </div>
 
       {/* Two-pane list + detail */}
-      <div className="grid items-start gap-8 lg:grid-cols-12">
-        <div className="space-y-3.5 lg:col-span-5 lg:sticky lg:top-0 lg:max-h-[calc(100vh-21rem)] lg:overflow-y-auto lg:pr-2 scrollbar-thin">
-          <div className={resultView === "GRID" ? "grid grid-cols-1 gap-3 sm:grid-cols-2" : "space-y-3.5"}>
+      <div className="grid min-w-0 items-start gap-5 xl:grid-cols-[minmax(0,0.86fr)_minmax(0,1.14fr)]">
+        <div className="min-w-0 space-y-3 xl:pr-2">
+          <div className={resultView === "GRID" ? "grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2" : "space-y-3"}>
             {sortedJobs.length === 0 ? (
               <Card className="space-y-3 rounded-2xl p-10 text-center">
                 <Search className="mx-auto h-8 w-8 text-zinc-300" />
@@ -247,7 +247,11 @@ export function Jobs({ jobs, onSkip, onQueue, onRefresh, onSearch, searchLoading
                   <div
                     key={job.id}
                     onClick={() => setSelectedJobId(job.id)}
-                    className={`relative cursor-pointer rounded-2xl border p-5 text-left transition-all ${active ? "border-brand-pine bg-[#faf7f0] shadow-md ring-2 ring-brand-pine/10" : "border-brand-border bg-white shadow-sm hover:border-brand-pine/40 hover:shadow-md"}`}
+                    className={`relative cursor-pointer rounded-2xl border p-4 text-left transition-all ${
+                      active
+                        ? "border-brand-pine/70 bg-[#faf7f0] shadow-md ring-2 ring-brand-pine/10"
+                        : "border-brand-border bg-white shadow-sm hover:border-brand-pine/40 hover:shadow-md"
+                    }`}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex min-w-0 flex-1 items-start gap-3">
@@ -257,7 +261,7 @@ export function Jobs({ jobs, onSkip, onQueue, onRefresh, onSearch, searchLoading
                             <PortalLogo name={job.portal} size="badge" />
                             {displayJobStatus(job) !== "pending" && <span className="font-mono text-[9px] font-bold uppercase text-zinc-400">{statusLabel(displayJobStatus(job))}</span>}
                           </div>
-                          <h3 className="line-clamp-1 font-display text-xs font-extrabold leading-snug text-zinc-950 sm:text-sm">{job.title}</h3>
+                          <h3 className="line-clamp-2 font-display text-xs font-extrabold leading-snug text-zinc-950 sm:text-sm">{job.title}</h3>
                           <p className="font-sans text-xs font-bold text-zinc-600">{job.company}</p>
                         </div>
                       </div>
@@ -286,36 +290,46 @@ export function Jobs({ jobs, onSkip, onQueue, onRefresh, onSearch, searchLoading
           )}
         </div>
 
-        <div className="lg:col-span-7 lg:sticky lg:top-0 lg:max-h-[calc(100vh-21rem)] lg:overflow-y-auto lg:pr-1 scrollbar-thin">
+        <div className="min-w-0 xl:sticky xl:top-3 xl:max-h-[calc(100dvh-7rem)] xl:self-start xl:overflow-y-auto xl:pr-1 scrollbar-thin">
           {selectedJob ? (
-            <Card className="overflow-hidden rounded-2xl">
-              <div className="space-y-4 border-b border-zinc-100 bg-zinc-50/20 p-6">
-                <div className="flex flex-wrap items-start justify-between gap-4">
-                  <div className="flex min-w-0 items-start gap-3">
+            <Card className="min-w-0 overflow-hidden rounded-2xl">
+              <div className="space-y-5 border-b border-zinc-100 bg-gradient-to-br from-white via-white to-brand-chalk/50 p-5 sm:p-6">
+                <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(150px,180px)] xl:items-start">
+                  <div className="flex min-w-0 items-start gap-3 sm:gap-4">
                     <CompanyLogo company={selectedJob.company} logoUrl={selectedJob.companyLogoUrl} externalUrl={selectedJob.externalApplyUrl} size="lg" />
                     <div className="min-w-0 space-y-1.5">
                       <div className="flex items-center gap-2">
                         <PortalLogo name={selectedJob.portal} size="sm" />
                         {(selectedJob.applyMethod === "external") && <span className="rounded bg-amber-50 px-1.5 py-0.5 font-mono text-[9px] font-bold text-amber-700">Applies on company site</span>}
                       </div>
-                      <h2 className="font-display text-base font-black leading-snug text-zinc-950 sm:text-lg">{selectedJob.title}</h2>
+                      <h2 className="max-w-3xl break-words font-display text-lg font-black leading-snug text-zinc-950 sm:text-xl">{selectedJob.title}</h2>
                       <p className="font-sans text-xs font-extrabold text-zinc-900 sm:text-sm">{selectedJob.company}</p>
-                      <div className="w-44 pt-2 sm:w-52"><MatchMeter pct={selectedJob.score} showLabel /></div>
                     </div>
                   </div>
-                  <div className="flex shrink-0 items-center gap-3">
-                    <div className="text-right"><span className="block font-mono text-[8px] font-bold tracking-widest text-zinc-400">MATCH SCORE</span><span className={`font-mono text-xl font-black sm:text-2xl ${scoreTone(selectedJob.score, threshold).text}`}>{selectedJob.score}%</span></div>
-                    <div className={`rounded-xl border p-2.5 ${scoreTone(selectedJob.score, threshold).bg} ${scoreTone(selectedJob.score, threshold).border}`}><Sparkles className="h-5 w-5 text-brand-clay" /></div>
+                  <div className={`rounded-2xl border p-4 shadow-sm ${scoreTone(selectedJob.score, threshold).bg} ${scoreTone(selectedJob.score, threshold).border}`}>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="font-mono text-[9px] font-black uppercase tracking-widest text-zinc-400">Match score</span>
+                      <Sparkles className="h-4 w-4 text-brand-clay" />
+                    </div>
+                    <div className="mt-3 flex items-end justify-between gap-3">
+                      <span className={`font-mono text-3xl font-black leading-none ${scoreTone(selectedJob.score, threshold).text}`}>{selectedJob.score}%</span>
+                      <span className={`rounded border px-1.5 py-0.5 font-mono text-[8px] font-bold uppercase tracking-wide ${scoreTone(selectedJob.score, threshold).bg} ${scoreTone(selectedJob.score, threshold).text} ${scoreTone(selectedJob.score, threshold).border}`}>
+                        {scoreTone(selectedJob.score, threshold).label}
+                      </span>
+                    </div>
+                    <div className="mt-3">
+                      <MatchMeter pct={selectedJob.score} />
+                    </div>
                   </div>
                 </div>
-                <div className="grid grid-cols-1 gap-3 rounded-xl border border-zinc-200/50 bg-white p-3 font-sans text-[11px] text-zinc-500 sm:grid-cols-3">
-                  <div className="space-y-0.5"><span className="font-mono text-[9px] font-bold uppercase tracking-wider text-zinc-400">Salary</span><p className="font-extrabold text-zinc-900">{selectedJob.salary || "—"}</p></div>
-                  <div className="space-y-0.5 border-l border-zinc-100 pl-3"><span className="font-mono text-[9px] font-bold uppercase tracking-wider text-zinc-400">Experience</span><p className="font-extrabold text-zinc-900">{selectedJob.experience || "—"}</p></div>
-                  <div className="space-y-0.5 border-l border-zinc-100 pl-3"><span className="font-mono text-[9px] font-bold uppercase tracking-wider text-zinc-400">Portal</span><p className="font-extrabold text-zinc-900">{portalDisplayName(selectedJob.portal)}</p></div>
+                <div className="grid grid-cols-1 overflow-hidden rounded-xl border border-zinc-200/60 bg-white font-sans text-[11px] text-zinc-500 shadow-sm sm:grid-cols-3">
+                  <div className="space-y-0.5 p-3"><span className="font-mono text-[9px] font-bold uppercase tracking-wider text-zinc-400">Salary</span><p className="truncate font-extrabold text-zinc-900">{selectedJob.salary || "—"}</p></div>
+                  <div className="space-y-0.5 border-t border-zinc-100 p-3 sm:border-l sm:border-t-0"><span className="font-mono text-[9px] font-bold uppercase tracking-wider text-zinc-400">Experience</span><p className="truncate font-extrabold text-zinc-900">{selectedJob.experience || "—"}</p></div>
+                  <div className="space-y-0.5 border-t border-zinc-100 p-3 sm:border-l sm:border-t-0"><span className="font-mono text-[9px] font-bold uppercase tracking-wider text-zinc-400">Portal</span><p className="truncate font-extrabold text-zinc-900">{portalDisplayName(selectedJob.portal)}</p></div>
                 </div>
               </div>
 
-              <div className="space-y-5 border-b border-zinc-100 p-6">
+              <div className="space-y-5 border-b border-zinc-100 p-5 sm:p-6">
                 <div className="space-y-2.5 rounded-xl border border-brand-border bg-brand-linen p-4">
                   <div className="flex items-center gap-1.5 text-xs font-extrabold text-brand-pine"><Sparkles className="h-4 w-4 text-brand-clay" /><span>Why you're a match</span></div>
                   {selectedJob.note && <p className="text-xs font-medium leading-relaxed text-zinc-700">{selectedJob.note}</p>}
@@ -359,15 +373,15 @@ export function Jobs({ jobs, onSkip, onQueue, onRefresh, onSearch, searchLoading
                 </div>
               </div>
 
-              <div className="space-y-5 p-6">
-                <div className="flex flex-col gap-3 sm:flex-row">
-                  <Button onClick={() => setTailorJob(selectedJob)} disabled={selectedJob.persisted === false} className="h-11 flex-1 rounded-xl bg-brand-pine hover:bg-brand-pine-deep"><FileText className="h-4 w-4" /> Tailor my resume</Button>
-                  <Button variant="outline" onClick={() => openSelectedPortal(selectedJob)} disabled={applyingLocked} className="h-11 rounded-xl">Open on {portalDisplayName(selectedJob.portal)} <ArrowUpRight className="h-4 w-4 text-zinc-400" /></Button>
-                  <Button variant="ghost" onClick={() => onSkip(selectedJob.id)} className="h-11 rounded-xl text-zinc-400 hover:text-[var(--state-error)]">Skip</Button>
+              <div className="space-y-5 p-5 sm:p-6">
+                <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+                  <Button onClick={() => setTailorJob(selectedJob)} disabled={selectedJob.persisted === false} className="h-11 min-w-[180px] flex-1 rounded-xl bg-brand-pine hover:bg-brand-pine-deep"><FileText className="h-4 w-4" /> Tailor my resume</Button>
+                  <Button variant="outline" onClick={() => openSelectedPortal(selectedJob)} disabled={applyingLocked} className="h-11 shrink-0 rounded-xl">Open on {portalDisplayName(selectedJob.portal)} <ArrowUpRight className="h-4 w-4 text-zinc-400" /></Button>
+                  <Button variant="ghost" onClick={() => onSkip(selectedJob.id)} className="h-11 shrink-0 rounded-xl text-zinc-400 hover:text-[var(--state-error)]">Skip</Button>
                 </div>
                 <div className="space-y-2">
                   <h4 className="font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-400">Job description</h4>
-                  <p className="whitespace-pre-line rounded-xl border border-zinc-200/50 bg-zinc-50 p-4 text-xs leading-relaxed text-zinc-600">{selectedJob.jdFullDescription || selectedJob.jdSummary || "No description snapshot available yet."}</p>
+                  <p className="break-words whitespace-pre-line rounded-xl border border-zinc-200/50 bg-zinc-50 p-4 text-xs leading-relaxed text-zinc-600">{selectedJob.jdFullDescription || selectedJob.jdSummary || "No description snapshot available yet."}</p>
                 </div>
               </div>
             </Card>

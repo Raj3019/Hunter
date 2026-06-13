@@ -34,6 +34,8 @@ export const authAPI = {
   login: (email: string, password: string) => api.post("/api/auth/login", { email, password }),
   register: (email: string, password: string, fullName: string) =>
     api.post("/api/auth/register", { email, password, full_name: fullName }),
+  me: () => api.get("/api/auth/me"),
+  updateProfile: (payload: { full_name?: string; phone?: string }) => api.patch("/api/auth/me", payload),
 };
 
 export const resumeAPI = {

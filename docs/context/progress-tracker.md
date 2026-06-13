@@ -12,6 +12,33 @@ Update this file after every meaningful implementation change.
 
 ## Completed
 
+- **Dashboard Personalized Greeting** (`frontend/src/App.tsx`, `frontend/src/pages/Dashboard.tsx`)
+  - Passed the DB-backed profile name into Dashboard and changed the hero greeting to use the user's first name, e.g. "Welcome back, Raj."
+  - `npm run build` passes.
+
+- **Editable Account Profile Settings** (`backend/api/routes/auth.py`, `frontend/src/pages/Settings.tsx`, `frontend/src/App.tsx`, `frontend/src/api/client.ts`)
+  - Added DB-backed profile editing through `PATCH /api/auth/me` for full name and phone.
+  - Added an Account tab in Settings with full name, read-only email, optional phone, and immediate sidebar refresh after save.
+  - `npm run build` and `python -m py_compile backend/api/routes/auth.py` pass.
+
+- **Profile Name Sync From DB** (`backend/api/routes/auth.py`, `frontend/src/App.tsx`, `frontend/src/components/AppShell.tsx`, `frontend/src/lib/session.ts`)
+  - Added `/api/auth/me` so the UI reads `profiles.full_name` from the database instead of relying only on stale JWT metadata.
+  - Cached the fetched profile client-side and wired the sidebar/profile hover card to the DB-backed name and initials.
+  - `npm run build` and `python -m py_compile backend/api/routes/auth.py` pass.
+
+- **Dashboard Recent Activity Logos** (`frontend/src/pages/Dashboard.tsx`, `frontend/src/api/mappers.ts`, `frontend/src/types.ts`)
+  - Added company logo mapping to application records so newly applied jobs keep the same logo data used by saved matches.
+  - Updated Recent activity to render the shared `CompanyLogo` component with a small status marker instead of the generic activity icon.
+  - `npm run build` passes.
+
+- **Jobs Two-Pane Layout Polish** (`frontend/src/pages/Jobs.tsx`)
+  - Rebalanced the Jobs split view with responsive desktop columns, a compact scrollable list pane, and a sticky detail pane without its own awkward inner scrollbar.
+  - Tightened job list cards and rebuilt the selected-job header with a dedicated match-score summary panel plus a cleaner salary/experience/portal strip.
+  - Removed the job-list internal max-height/scroll clipping so the list continues naturally down the page instead of leaving a blank left column beside long details.
+  - Fixed horizontal overflow by using fit-safe grid tracks, `min-w-0` containers, wrapping detail actions, and hiding accidental shell-level x-overflow.
+  - Restored correct sticky behavior by removing the Jobs-root overflow wrapper and giving the right detail pane its own sticky, viewport-bounded scroll area.
+  - `npm run build` passes.
+
 - **Jobs Saved-Matches View Cleanup** (`frontend/src/App.tsx`, `frontend/src/pages/Jobs.tsx`)
   - Removed the "Last search" chip/link from the Jobs search panel and retired the scoped last-search filter state.
   - Updated the refine panel to show and filter the full saved match set, with "Showing X of Y saved" copy and Load more still available for additional results.

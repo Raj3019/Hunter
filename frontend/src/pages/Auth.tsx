@@ -5,6 +5,7 @@ import { useToast } from "../components/Toast";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Spinner } from "@/components/ui/spinner";
 import { apiErrorMessage, authAPI, preferencesAPI, resumeAPI } from "../api/client";
+import { setCurrentUserProfile } from "@/lib/session";
 
 type AuthMode = "login" | "register" | "forgot";
 
@@ -57,6 +58,11 @@ export function Auth() {
       const token = response.data?.access_token;
       if (token) {
         localStorage.setItem("access_token", token);
+        setCurrentUserProfile({
+          userId: response.data?.user_id,
+          email: response.data?.email || email,
+          fullName: response.data?.full_name || (isRegister ? fullName.trim() : ""),
+        });
         toast.success(mode === "register" ? "Account created. Welcome to Hunter!" : "Signed in.");
         const target = (location.state as { from?: string } | null)?.from;
         navigate(target || (await firstRunRoute()), { replace: true });

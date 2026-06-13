@@ -1,4 +1,4 @@
-import { AlertCircle, Bell, Clock, FileText, Plus, RefreshCw, Sliders, SlidersHorizontal, UploadCloud } from "lucide-react";
+import { AlertCircle, Bell, Clock, FileText, Mail, Phone, Plus, RefreshCw, Sliders, SlidersHorizontal, UploadCloud, UserRound } from "lucide-react";
 import { useEffect, useLayoutEffect, useState } from "react";
 import { useDropzone } from "react-dropzone";
 import { useToast } from "../components/Toast";
@@ -8,12 +8,13 @@ import { StatusButton } from "@/components/ui/status-button";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { usePageLoading } from "@/components/PageLoadingContext";
-import { apiErrorMessage, preferencesAPI, resumeAPI } from "../api/client";
+import { apiErrorMessage, authAPI, preferencesAPI, resumeAPI } from "../api/client";
 import { splitList } from "../api/mappers";
 
-type SubTab = "RESUME" | "PREFERENCES" | "SYNC" | "ALERTS";
+type SubTab = "ACCOUNT" | "RESUME" | "PREFERENCES" | "SYNC" | "ALERTS";
 
 const NAV: Array<{ key: SubTab; label: string; icon: typeof FileText }> = [
+  { key: "ACCOUNT", label: "Account", icon: UserRound },
   { key: "RESUME", label: "Resume", icon: FileText },
   { key: "PREFERENCES", label: "Preferences", icon: Sliders },
   { key: "SYNC", label: "Sync", icon: RefreshCw },
@@ -22,16 +23,25 @@ const NAV: Array<{ key: SubTab; label: string; icon: typeof FileText }> = [
 
 export const SHORTLIST_THRESHOLD_KEY = "hunter_shortlist_threshold";
 
+type UserProfile = {
+  name: string;
+  email: string;
+};
+
 function toArray(value: unknown): string[] {
   if (Array.isArray(value)) return value.map((v) => String(v).trim()).filter(Boolean);
   if (typeof value === "string") return splitList(value);
   return [];
 }
 
-export function Settings() {
-  const [tab, setTab] = useState<SubTab>("RESUME");
+export function Settings({ userProfile, onProfileSaved }: { userProfile?: UserProfile; onProfileSaved?: () => void | Promise<unknown> }) {
+  const [tab, setTab] = useState<SubTab>("ACCOUNT");
   const toast = useToast();
   const setPageLoading = usePageLoading();
+
+  const [profileName, setProfileName] = useState(userProfile?.name || "");
+  const [profileEmail, setProfileEmail] = useState(userProfile?.email || "");
+  const [profilePhone, setProfilePhone] = useState("");
 
   const [titles, setTitles] = useState<string[]>([]);
   const [skills, setSkills] = useState<string[]>([]);
@@ -56,6 +66,11 @@ export function Settings() {
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
 
+  useEffect(() => {
+    setProfileName((current) => current || userProfile?.name || "");
+    setProfileEmail((current) => current || userProfile?.email || "");
+  }, [userProfile?.email, userProfile?.name]);
+
   const loadResume = (data: Record<string, unknown> | undefined) => {
     if (!data) return;
     // upload route returns { parsed }, /parsed route returns { parsed_data, file_url, created_at }.
@@ -73,7 +88,13 @@ export function Settings() {
   useEffect(() => {
     async function load() {
       try {
-        const [prefRes, resumeRes] = await Promise.allSettled([preferencesAPI.get(), resumeAPI.getParsed()]);
+        const [profileRes, prefRes, resumeRes] = await Promise.allSettled([authAPI.me(), preferencesAPI.get(), resumeAPI.getParsed()]);
+        if (profileRes.status === "fulfilled") {
+          const data = profileRes.value.data || {};
+          setProfileName(String(data.full_name || ""));
+          setProfileEmail(String(data.email || ""));
+          setProfilePhone(String(data.phone || ""));
+        }
         if (prefRes.status === "fulfilled") {
           const data = prefRes.value.data || {};
           setTitles(toArray(data.job_titles));
@@ -106,7 +127,7 @@ export function Settings() {
     }
     setPageLoading({
       title: "Loading settings...",
-      description: "Fetching your saved preferences and resume profile.",
+      description: "Fetching your account profile, preferences, and resume.",
     });
     return () => setPageLoading(null);
   }, [settingsLoading, setPageLoading]);
@@ -173,6 +194,28 @@ export function Settings() {
     }
   };
 
+  const saveProfile = async () => {
+    const fullName = profileName.trim();
+    if (!fullName) {
+      toast.error("Enter your full name before saving.");
+      throw new Error("validation");
+    }
+    try {
+      const response = await authAPI.updateProfile({
+        full_name: fullName,
+        phone: profilePhone.trim(),
+      });
+      setProfileName(String(response.data?.full_name || fullName));
+      setProfileEmail(String(response.data?.email || profileEmail));
+      setProfilePhone(String(response.data?.phone || ""));
+      await onProfileSaved?.();
+      toast.success("Profile updated.");
+    } catch (caught) {
+      toast.error(apiErrorMessage(caught, "Could not save profile."));
+      throw caught;
+    }
+  };
+
   return (
     <div className="grid animate-fade-in-slide items-start gap-6 text-left md:grid-cols-12">
       {/* Left nav */}
@@ -192,6 +235,41 @@ export function Settings() {
 
       {/* Content */}
       <Card className="rounded-2xl p-6 sm:p-8 md:col-span-9">
+        {tab === "ACCOUNT" && (
+          <div className="space-y-6">
+            <Header title="Account profile" body="Update the identity Hunter shows in the sidebar, portals, and application context." />
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label>Full name</Label>
+                <div className="relative">
+                  <UserRound className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+                  <Input value={profileName} onChange={(e) => setProfileName(e.target.value)} placeholder="Raj Chauhan" className="h-11 rounded-xl pl-9" />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Email</Label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+                  <Input value={profileEmail || "Not available"} readOnly className="h-11 rounded-xl bg-zinc-50 pl-9 text-zinc-500" />
+                </div>
+              </div>
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label>Phone</Label>
+                <div className="relative">
+                  <Phone className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+                  <Input value={profilePhone} onChange={(e) => setProfilePhone(e.target.value)} placeholder="Optional phone for future notifications" className="h-11 rounded-xl pl-9" />
+                </div>
+              </div>
+            </div>
+            <div className="rounded-2xl border border-zinc-200/60 bg-zinc-50/60 p-4 text-[11px] font-medium leading-relaxed text-zinc-500">
+              The sidebar name and initials update from this profile row, so future database changes and Settings edits stay in sync.
+            </div>
+            <StatusButton onClick={saveProfile} text={{ loading: "Saving profile...", success: "Profile saved", error: "Couldn't save" }}>
+              Save profile
+            </StatusButton>
+          </div>
+        )}
+
         {tab === "RESUME" && (
           <div className="space-y-6">
             <Header title="Your resume" body="Upload and manage the resume Hunter uses to score and tailor jobs for you." />
