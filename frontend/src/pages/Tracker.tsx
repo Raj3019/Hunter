@@ -6,6 +6,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
+import { CompanyLogo } from "@/components/ui/company-logo";
 import { PortalLogo } from "@/components/ui/PlatformLogos";
 import type { Application, ApplicationStatus } from "../types";
 import { openExternalApply, statusLabel } from "../utils/jobApply";
@@ -117,6 +118,9 @@ export function Tracker({ applications, onUpdate, onSyncApplied }: TrackerProps)
   };
 
   const appliedRate = Math.round((applications.filter((a) => a.status === "applied").length / (applications.length || 1)) * 100);
+  const awaitingCount = countFor("external_pending");
+  const appliedCount = countFor("applied");
+  const activeCount = countFor("viewed") + countFor("interview") + countFor("offer");
 
   return (
     <div className="animate-fade-in-slide space-y-6">
@@ -144,6 +148,13 @@ export function Tracker({ applications, onUpdate, onSyncApplied }: TrackerProps)
           </div>
         </Card>
       )}
+
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <TrackerMetric label="Total tracked" value={applications.length} sub="All applications" />
+        <TrackerMetric label="Awaiting" value={awaitingCount} sub="Needs confirmation" tone="amber" />
+        <TrackerMetric label="Applied" value={appliedCount} sub={`${appliedRate}% confirmed`} tone="indigo" />
+        <TrackerMetric label="Active signals" value={activeCount} sub="Viewed, interview, offer" tone="emerald" />
+      </div>
 
       {/* Stage tabs + view toggle */}
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -182,19 +193,30 @@ export function Tracker({ applications, onUpdate, onSyncApplied }: TrackerProps)
               {visibleApps.length === 0 && <p className="py-6 text-center text-xs italic text-zinc-400">No applications in this stage.</p>}
               {pagedApps.map((app) => (
                 <div key={app.id} className="space-y-4 rounded-2xl border border-zinc-200/50 bg-white p-4 text-left transition-all hover:border-zinc-300 hover:bg-zinc-50/20 sm:p-5">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className={`rounded-md border px-2 py-0.5 font-mono text-[9px] font-bold uppercase tracking-wider ${statusStyle(app.status)}`}>{statusLabel(app.status)}</span>
-                        <span className="inline-flex items-center gap-1 font-mono text-[10px] font-extrabold tracking-tight text-zinc-400">VIA <PortalLogo name={app.portal} size="badge" /></span>
+                  <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
+                    <div className="flex min-w-0 items-start gap-3">
+                      <CompanyLogo company={app.company} logoUrl={app.companyLogoUrl} externalUrl={app.externalApplyUrl} size="md" />
+                      <div className="min-w-0 space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className={`rounded-md border px-2 py-0.5 font-mono text-[9px] font-bold uppercase tracking-wider ${statusStyle(app.status)}`}>{statusLabel(app.status)}</span>
+                          <span className="inline-flex items-center gap-1 font-mono text-[10px] font-extrabold tracking-tight text-zinc-400">VIA <PortalLogo name={app.portal} size="badge" /></span>
+                        </div>
+                        <h3 className="mt-1 line-clamp-2 text-sm font-extrabold text-zinc-950">{app.title}</h3>
+                        <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-zinc-500">
+                          <span className="font-bold text-zinc-700">{app.company}</span>
+                          {app.location && (
+                            <>
+                              <span className="text-zinc-300">•</span>
+                              <span>{app.location}</span>
+                            </>
+                          )}
+                        </div>
                       </div>
-                      <h3 className="mt-1 text-sm font-extrabold text-zinc-950">{app.title}</h3>
-                      <div className="flex items-center gap-2 text-xs font-medium text-zinc-500"><span className="font-bold text-zinc-700">{app.company}</span>{app.location && <><span className="text-zinc-300">•</span><span>{app.location}</span></>}</div>
                     </div>
                     {app.score > 0 ? (
-                      <div className="flex items-center gap-1.5 rounded-xl border border-zinc-200/70 bg-zinc-50 p-1.5 font-mono text-[10px] font-bold"><span className="rounded border border-brand-border bg-brand-chalk px-1.5 py-0.5 font-extrabold text-brand-pine">{app.score}%</span><span className="text-zinc-500">RESUME FIT</span></div>
+                      <div className="flex shrink-0 items-center gap-1.5 rounded-xl border border-zinc-200/70 bg-zinc-50 p-1.5 font-mono text-[10px] font-bold"><span className="rounded border border-brand-border bg-brand-chalk px-1.5 py-0.5 font-extrabold text-brand-pine">{app.score}%</span><span className="text-zinc-500">RESUME FIT</span></div>
                     ) : (
-                      <div className="flex items-center gap-1.5 rounded-xl border border-violet-200/70 bg-violet-50 p-1.5 font-mono text-[10px] font-bold"><span className="inline-flex items-center gap-1 uppercase tracking-tight text-violet-700">Imported · <PortalLogo name={app.portal} size="badge" /></span></div>
+                      <div className="flex shrink-0 items-center gap-1.5 rounded-xl border border-violet-200/70 bg-violet-50 p-1.5 font-mono text-[10px] font-bold"><span className="inline-flex items-center gap-1 uppercase tracking-tight text-violet-700">Imported · <PortalLogo name={app.portal} size="badge" /></span></div>
                     )}
                   </div>
                   <div className="flex flex-col items-start justify-between gap-3 rounded-xl border border-zinc-200/50 bg-zinc-50/60 p-3 font-mono text-[10px] font-bold tracking-tight md:flex-row md:items-center">
@@ -265,8 +287,14 @@ export function Tracker({ applications, onUpdate, onSyncApplied }: TrackerProps)
       {modalApp && modalOutcome && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-900/60 p-4 backdrop-blur-sm" role="dialog" aria-modal="true">
           <div className="w-full max-w-md animate-fade-in-slide space-y-4 rounded-2xl border border-zinc-200 bg-white p-6 shadow-2xl">
-            <div className="flex items-start justify-between border-b border-zinc-100 pb-2">
-              <h3 className="font-sans text-sm font-black text-zinc-950">Update application status</h3>
+            <div className="flex items-start justify-between gap-3 border-b border-zinc-100 pb-2">
+              <div className="flex min-w-0 items-start gap-3">
+                <CompanyLogo company={modalApp.company} logoUrl={modalApp.companyLogoUrl} externalUrl={modalApp.externalApplyUrl} size="sm" />
+                <div className="min-w-0">
+                  <h3 className="font-sans text-sm font-black text-zinc-950">Update application status</h3>
+                  <p className="truncate text-[11px] font-medium text-zinc-500">{modalApp.company}</p>
+                </div>
+              </div>
               <button type="button" onClick={() => setModalApp(null)} className="text-xl font-bold leading-none text-zinc-400 hover:text-zinc-950">×</button>
             </div>
             <div className="space-y-1.5 text-left font-sans text-xs leading-normal text-zinc-500">
@@ -297,6 +325,37 @@ function SummaryRow({ dot, label, value, pill }: { dot: string; label: string; v
   );
 }
 
+function TrackerMetric({
+  label,
+  value,
+  sub,
+  tone = "zinc",
+}: {
+  label: string;
+  value: number;
+  sub: string;
+  tone?: "zinc" | "amber" | "indigo" | "emerald";
+}) {
+  const toneClass =
+    tone === "amber"
+      ? "border-amber-100 bg-amber-50 text-amber-800"
+      : tone === "indigo"
+        ? "border-indigo-100 bg-indigo-50 text-indigo-800"
+        : tone === "emerald"
+          ? "border-emerald-100 bg-emerald-50 text-emerald-800"
+          : "border-zinc-200 bg-white text-zinc-900";
+
+  return (
+    <div className={`rounded-2xl border p-4 shadow-sm ${toneClass}`}>
+      <span className="font-mono text-[9px] font-black uppercase tracking-wider opacity-65">{label}</span>
+      <div className="mt-2 flex items-end justify-between gap-3">
+        <span className="font-display text-2xl font-black leading-none">{value}</span>
+        <span className="text-right text-[11px] font-bold opacity-70">{sub}</span>
+      </div>
+    </div>
+  );
+}
+
 const BOARD_STAGES: Array<{ key: ApplicationStatus; label: string }> = [
   { key: "external_pending", label: "Awaiting" },
   { key: "applied", label: "Applied" },
@@ -320,7 +379,13 @@ function TrackerBoard({ applications, onConfirm }: { applications: Application[]
               {items.length === 0 && <p className="py-4 text-center text-[11px] italic text-zinc-400">Empty</p>}
               {items.map((app) => (
                 <div key={app.id} className="space-y-2 rounded-xl border border-zinc-200/60 bg-white p-3 text-left shadow-sm">
-                  <div className="flex items-center gap-1.5"><PortalLogo name={app.portal} size="badge" /><span className="truncate text-[11px] font-bold text-zinc-900">{app.company}</span></div>
+                  <div className="flex items-center gap-2">
+                    <CompanyLogo company={app.company} logoUrl={app.companyLogoUrl} externalUrl={app.externalApplyUrl} size="sm" />
+                    <div className="min-w-0">
+                      <span className="block truncate text-[11px] font-bold text-zinc-900">{app.company}</span>
+                      <span className="inline-flex items-center gap-1 font-mono text-[9px] font-bold uppercase text-zinc-400">Via <PortalLogo name={app.portal} size="badge" /></span>
+                    </div>
+                  </div>
                   <p className="line-clamp-2 text-[11px] font-medium text-zinc-500">{app.title}</p>
                   {app.score > 0 && <span className="inline-block rounded border border-brand-border bg-brand-chalk px-1.5 py-0.5 font-mono text-[9px] font-bold text-brand-pine">{app.score}%</span>}
                   {app.status === "external_pending" && (

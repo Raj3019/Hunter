@@ -3,16 +3,22 @@ import { Navigate, useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "motion/react";
 import {
   ArrowRight,
+  ChevronDown,
   Check,
+  ClipboardCheck,
   Cpu,
   FileText,
   Globe,
-  HelpCircle,
+  Link2,
   Layers,
+  SearchCheck,
   ShieldCheck,
+  SlidersHorizontal,
   Sparkle,
   Sparkles,
   Target,
+  UploadCloud,
+  UserPlus,
   Zap,
 } from "lucide-react";
 import { FlippingLogoBadge } from "../components/ui/PlatformLogos";
@@ -60,7 +66,14 @@ const LIVE_DEMO_JOBS = [
   },
 ];
 
-const FAQ_ITEMS = [
+type FaqItem = {
+  q: string;
+  a: string;
+  supported?: string[];
+  manual?: string[];
+};
+
+const FAQ_ITEMS: FaqItem[] = [
   {
     q: "How does Hunter's Match Index calculation work?",
     a: "Hunter parses direct skill overlap keywords, location restrictions, and salary preferences against your uploaded CV text in real-time. It calculates coefficient overlaps dynamically with direct, unbiased semantic rules.",
@@ -74,12 +87,69 @@ const FAQ_ITEMS = [
     a: "Yes. Hunter acts as a local orchestrator. You can connect portal sessions, set scraped configurations, or upload PDF files directly in your own workspace environment.",
   },
   {
+    q: "Which portals can Hunter auto-detect applications from?",
+    a: "Hunter auto-detects applied status only where the connected portal exposes a readable history or applications page. Everything else stays as portal pending until you confirm it.",
+    supported: ["Naukri", "Foundit", "Wipro", "HCLTech", "Infosys", "Capgemini"],
+    manual: ["Internshala", "LinkedIn", "Generic company sites", "Workday / Taleo / custom portals", "Unknown external apply links"],
+  },
+  {
     q: "Is Hunter free to use?",
     a: "Yes. Hunter runs against your own portals and resume with no paywalls or subscription limits. You confirm every apply.",
   },
   {
     q: "How is 'Avoid List' muting handled?",
     a: "Add specific tags, consultancy names, or outsource agencies to your blocklist in Settings. Hunter automatically hides matched cards so you focus on premium openings.",
+  },
+];
+
+const HOW_TO_USE_STEPS = [
+  {
+    icon: UserPlus,
+    step: "01",
+    label: "Account",
+    title: "Create profile",
+    body: "Sign up and open your private Hunter workspace.",
+    iconClass: "bg-zinc-950 text-white",
+  },
+  {
+    icon: UploadCloud,
+    step: "02",
+    label: "Resume",
+    title: "Upload resume",
+    body: "Upload your PDF so Hunter can read skills and experience.",
+    iconClass: "bg-brand-clay text-white",
+  },
+  {
+    icon: Link2,
+    step: "03",
+    label: "Portals",
+    title: "Connect portals",
+    body: "Connect Naukri, Foundit, or supported company career portals.",
+    iconClass: "bg-sky-500 text-white",
+  },
+  {
+    icon: SlidersHorizontal,
+    step: "04",
+    label: "Rules",
+    title: "Set job rules",
+    body: "Choose target roles, locations, salary range, and avoid-list terms.",
+    iconClass: "bg-brand-ochre text-zinc-950",
+  },
+  {
+    icon: SearchCheck,
+    step: "05",
+    label: "Matches",
+    title: "Review matches",
+    body: "Review scored jobs with matched and missing skills.",
+    iconClass: "bg-brand-pine text-white",
+  },
+  {
+    icon: ClipboardCheck,
+    step: "06",
+    label: "Tracker",
+    title: "Apply and track",
+    body: "Open the original portal, apply, then sync or confirm in Tracker.",
+    iconClass: "bg-emerald-500 text-white",
   },
 ];
 
@@ -163,8 +233,9 @@ export function Home() {
           <nav className="hidden items-center gap-6 font-sans text-xs font-bold text-zinc-500 md:flex">
             <a href="#demo" className="transition-colors hover:text-zinc-950">Scoring Sandbox</a>
             <a href="#pipeline" className="transition-colors hover:text-zinc-950">Capabilities</a>
-            <a href="#faq" className="transition-colors hover:text-zinc-950">FAQ</a>
+            <a href="#how-to-use" className="transition-colors hover:text-zinc-950">How to use</a>
             <a href="#architecture" className="transition-colors hover:text-zinc-950">How it works</a>
+            <a href="#faq" className="transition-colors hover:text-zinc-950">FAQ</a>
           </nav>
 
           <div className="flex items-center gap-2.5">
@@ -440,6 +511,52 @@ export function Home() {
           </div>
         </section>
 
+        {/* Short usage flow */}
+        <section id="how-to-use" className="mx-auto max-w-7xl border-t border-brand-border/60 px-6 py-20 font-sans">
+          <div className="mx-auto mb-12 max-w-2xl space-y-3 text-center">
+            <span className="rounded border border-brand-border bg-brand-chalk/50 px-2 py-0.5 font-mono text-[9px] font-bold uppercase tracking-wider text-brand-pine">Main user flow</span>
+            <h2 className="font-display text-2xl font-black tracking-tight text-zinc-950 sm:text-3xl">How a user gets from setup to tracked applications</h2>
+            <p className="text-xs font-semibold leading-relaxed text-zinc-500">The important steps only: profile, resume, portals, rules, matches, and tracker.</p>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {HOW_TO_USE_STEPS.map((step) => {
+              const Icon = step.icon;
+              return (
+                <article key={step.step} className="group relative overflow-hidden rounded-3xl border border-brand-border bg-white p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-lg">
+                  <span className="pointer-events-none absolute -right-2 -top-5 font-display text-[60px] font-black leading-none text-zinc-100 transition-colors group-hover:text-brand-chalk">{step.step}</span>
+                  <div className="relative z-10">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <span className="rounded-full border border-brand-border bg-brand-linen px-2 py-1 font-mono text-[9px] font-black uppercase tracking-wider text-zinc-500">{step.label}</span>
+                        <h3 className="mt-3 font-display text-lg font-black tracking-tight text-zinc-950">{step.title}</h3>
+                      </div>
+                      <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl shadow-sm ${step.iconClass}`}>
+                        <Icon className="h-4 w-4" />
+                      </span>
+                    </div>
+                    <p className="mt-3 max-w-[18rem] text-xs font-semibold leading-relaxed text-zinc-500">{step.body}</p>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+
+          <div className="mx-auto mt-8 flex max-w-5xl flex-wrap items-center justify-center gap-2 rounded-2xl border border-brand-border bg-brand-chalk/40 px-4 py-3 text-center font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+            <span>Create profile</span>
+            <ArrowRight className="h-3 w-3 text-brand-clay" />
+            <span>Upload resume</span>
+            <ArrowRight className="h-3 w-3 text-brand-clay" />
+            <span>Connect portals</span>
+            <ArrowRight className="h-3 w-3 text-brand-clay" />
+            <span>Set rules</span>
+            <ArrowRight className="h-3 w-3 text-brand-clay" />
+            <span>Review matches</span>
+            <ArrowRight className="h-3 w-3 text-brand-clay" />
+            <span>Track applications</span>
+          </div>
+        </section>
+
         {/* How it works */}
         <section id="architecture" className="border-y border-brand-border/60 bg-brand-linen px-6 py-20 font-sans">
           <div className="mx-auto max-w-4xl space-y-12">
@@ -506,14 +623,26 @@ export function Home() {
                 <div key={item.q} className="overflow-hidden rounded-2xl border border-brand-border bg-brand-linen shadow-sm transition-all">
                   <button type="button" onClick={() => setOpenFaqIndex(isOpen ? null : idx)} className="flex w-full items-center justify-between gap-4 px-6 py-4 text-left transition-colors hover:bg-brand-chalk/45">
                     <span className="font-sans text-xs font-extrabold tracking-tight text-zinc-950 sm:text-[13px]">{item.q}</span>
-                    <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand-chalk/50 transition-transform duration-300 ${isOpen ? "rotate-180 bg-brand-chalk text-brand-pine" : "text-zinc-500"}`}>
-                      <HelpCircle className="h-3.5 w-3.5" />
+                    <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-all duration-200 ${isOpen ? "border-zinc-950 bg-zinc-950 text-white shadow-sm" : "border-brand-border bg-white text-zinc-500 hover:border-zinc-300 hover:text-zinc-950"}`}>
+                      <ChevronDown className={`h-4 w-4 stroke-[2.5] transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`} />
                     </span>
                   </button>
                   <AnimatePresence initial={false}>
                     {isOpen && (
                       <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.25, ease: "easeInOut" }} className="overflow-hidden border-t border-brand-border">
-                        <div className="bg-[#FAFAF9] p-6 font-sans text-xs font-medium leading-relaxed text-zinc-500">{item.a}</div>
+                        <div className="bg-[#FAFAF9] p-6 font-sans text-xs font-medium leading-relaxed text-zinc-500">
+                          <p>{item.a}</p>
+                          {(item.supported || item.manual) && (
+                            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                              {item.supported && (
+                                <FaqPortalList title="Auto-detect supported" tone="success" items={item.supported} />
+                              )}
+                              {item.manual && (
+                                <FaqPortalList title="Manual confirmation" tone="manual" items={item.manual} />
+                              )}
+                            </div>
+                          )}
+                        </div>
                       </motion.div>
                     )}
                   </AnimatePresence>
@@ -540,6 +669,35 @@ export function Home() {
           </div>
         </div>
       </footer>
+    </div>
+  );
+}
+
+function FaqPortalList({
+  title,
+  tone,
+  items,
+}: {
+  title: string;
+  tone: "success" | "manual";
+  items: string[];
+}) {
+  const dotClass = tone === "success" ? "bg-emerald-500" : "bg-amber-500";
+  const shellClass = tone === "success" ? "border-emerald-100 bg-emerald-50/70" : "border-amber-100 bg-amber-50/70";
+
+  return (
+    <div className={`rounded-2xl border p-3.5 ${shellClass}`}>
+      <div className="mb-2 flex items-center gap-2 font-mono text-[9px] font-black uppercase tracking-wider text-zinc-500">
+        <span className={`h-1.5 w-1.5 rounded-full ${dotClass}`} />
+        {title}
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {items.map((portal) => (
+          <span key={portal} className="rounded-lg border border-white/80 bg-white px-2 py-1 font-mono text-[10px] font-bold text-zinc-700 shadow-sm">
+            {portal}
+          </span>
+        ))}
+      </div>
     </div>
   );
 }

@@ -12,6 +12,23 @@ Update this file after every meaningful implementation change.
 
 ## Completed
 
+- **Homepage Main-Step Flow And FAQ Control Polish** (`frontend/src/pages/Home.tsx`)
+  - Replaced the FAQ accordion question-mark icon with a clearer chevron collapse control.
+  - Reworked the homepage "How to use" section into a stronger six-step flow: create profile, upload resume, connect portals, set job rules, review matches, and apply/track.
+  - Tightened the step cards by removing forced vertical spacing so titles and descriptions stay visually connected.
+  - `npm run build` passes.
+
+- **Homepage FAQ Portal Detection Copy** (`frontend/src/pages/Home.tsx`)
+  - Added a FAQ entry explaining which portals support applied-status auto-detect versus manual confirmation.
+  - Rendered the answer with compact grouped portal chips for Naukri/Foundit/career portals and manual-confirm portals.
+  - `npm run build` passes.
+
+- **Tracker Logo And Metrics Polish** (`frontend/src/pages/Tracker.tsx`)
+  - Added company logos to Tracker list cards, board cards, and the application status confirmation modal using the shared lazy `CompanyLogo` component.
+  - Updated `/api/applications` to include `jobs.portal_metadata` so Tracker receives stored company logo URLs when available.
+  - Added a compact Tracker metrics strip for total tracked, awaiting confirmation, applied, and active signals.
+  - `npm run build` and `python -m py_compile backend/api/routes/applications.py` pass.
+
 - **Dashboard Personalized Greeting** (`frontend/src/App.tsx`, `frontend/src/pages/Dashboard.tsx`)
   - Passed the DB-backed profile name into Dashboard and changed the hero greeting to use the user's first name, e.g. "Welcome back, Raj."
   - `npm run build` passes.

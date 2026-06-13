@@ -53,7 +53,7 @@ class StatusUpdate(BaseModel):
 async def get_applications(user_id: str = Depends(get_current_user_id)):
     db = get_db()
     result = db.table("applications").select(
-        "*, jobs(title, company, location, portal, apply_link, external_apply_url)"
+        "*, jobs(title, company, location, portal, apply_link, external_apply_url, portal_metadata)"
     ).eq("user_id", user_id).order("applied_at", desc=True).execute()
     return {"applications": result.data or []}
 
