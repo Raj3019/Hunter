@@ -11,6 +11,7 @@ supabase = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 class AuthIn(BaseModel):
     email: str
     password: str
+    full_name: str | None = None
 
 
 @router.post("/login")
@@ -32,9 +33,15 @@ async def login(body: AuthIn):
 @router.post("/register")
 async def register(body: AuthIn):
     try:
+        metadata = {}
+        if body.full_name and body.full_name.strip():
+            metadata["full_name"] = body.full_name.strip()
+            metadata["name"] = body.full_name.strip()
+
         result = supabase.auth.sign_up({
             "email": body.email,
             "password": body.password,
+            "options": {"data": metadata} if metadata else {},
         })
         payload = {
             "message": "Check your email for a confirmation link",

@@ -8,7 +8,7 @@ const toneColor = {
   success: "var(--state-success)",
   warning: "var(--state-warning)",
   error: "var(--state-error)",
-  accent: "var(--accent-primary)",
+  accent: "var(--accent-clay)",
 };
 
 export function StatusPill({ label, tone = "neutral" }: StatusPillProps) {

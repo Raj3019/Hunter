@@ -1,7 +1,12 @@
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, ArrowRight, CheckCircle, LoaderCircle, Search, Send, Sparkles, XCircle } from "lucide-react";
+import { AlertTriangle, ArrowRight, CheckCircle, Send, XCircle } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { PageLoadingOverlay } from "@/components/ui/page-loading-overlay";
+import { Spinner } from "@/components/ui/spinner";
 import { AppShell } from "./components/AppShell";
+import { PageLoadingContext, type PageLoadingState } from "./components/PageLoadingContext";
 import { useToast } from "./components/Toast";
 import { Home } from "./pages/Home";
 import { Auth } from "./pages/Auth";
@@ -11,7 +16,11 @@ import { Jobs } from "./pages/Jobs";
 import { Tracker } from "./pages/Tracker";
 import { Portals } from "./pages/Portals";
 import { Settings } from "./pages/Settings";
-import { apiErrorMessage, applicationsAPI, jobsAPI, portalsAPI } from "./api/client";
+import { apiErrorMessage, applicationsAPI, jobsAPI, portalsAPI, preferencesAPI, CAREER_PORTAL_KEYS } from "./api/client";
+
+// Single source for the recommend cutoff fallback (used only until the saved
+// preference loads / when none is set). The real value comes from Settings.
+const DEFAULT_RECOMMEND_THRESHOLD = 60;
 import { mapApplication, mapJobMatch } from "./api/mappers";
 import type { Application, ApplicationStatus, JobMatch, SearchRunSummary } from "./types";
 import { isExternalApplyJob, openExternalApply } from "./utils/jobApply";
@@ -75,6 +84,7 @@ type AutoSyncState = "idle" | "syncing" | "paused";
 const AUTO_SYNC_INTERVAL_MS = 60_000;
 const PORTAL_HEALTH_AUTO_SYNC_INTERVAL_MS = 10 * 60_000;
 const APPLY_SYNC_INTERVAL_MS = 5 * 60_000;
+const AUTO_PROFILE_SEARCH_EXCLUDED_PATHS = new Set(["/", "/auth", "/login", "/onboarding"]);
 
 export default function App() {
   const navigate = useNavigate();
@@ -82,17 +92,25 @@ export default function App() {
   const toast = useToast();
   const [jobs, setJobs] = useState<JobMatch[]>([]);
   const [applications, setApplications] = useState<Application[]>([]);
+  const [recommendThreshold, setRecommendThreshold] = useState(DEFAULT_RECOMMEND_THRESHOLD);
   const [loadingLiveData, setLoadingLiveData] = useState(false);
   const [liveError, setLiveError] = useState("");
   const [manualSearchLoading, setManualSearchLoading] = useState(false);
   const [manualSearchNotice, setManualSearchNotice] = useState("");
   const [manualSearchQuery, setManualSearchQuery] = useState("");
   const [lastSearchSummary, setLastSearchSummary] = useState<SearchRunSummary | null>(null);
-  const [searchResultIds, setSearchResultIds] = useState<string[] | null>(null);
   const [searchHasMore, setSearchHasMore] = useState(false);
   const [searchLoadingMore, setSearchLoadingMore] = useState(false);
   const searchPageRef = useRef(1);
   const lastSearchRef = useRef<{ query: string; locations?: string[] }>({ query: "" });
+
+  // Auto-dismiss the search-result strip after a few seconds, consistent with the
+  // toast/alert system; the Jobs list keeps showing the full loaded match set.
+  useEffect(() => {
+    if (manualSearchLoading || !manualSearchNotice) return;
+    const timer = window.setTimeout(() => setManualSearchNotice(""), 6000);
+    return () => window.clearTimeout(timer);
+  }, [manualSearchNotice, manualSearchLoading]);
   const [applyNotice, setApplyNotice] = useState<ApplyNotice | null>(null);
   const [pendingApply, setPendingApply] = useState<PendingApply | null>(null);
   const [portalIssues, setPortalIssues] = useState<PortalIssue[]>([]);
@@ -105,6 +123,7 @@ export default function App() {
   const jobsRef = useRef<JobMatch[]>([]);
   const lastAppliedSyncAtRef = useRef(0);
   const appliedSyncInFlightRef = useRef(false);
+  const autoProfileSearchTokenRef = useRef<string | null>(null);
 
   useEffect(() => {
     jobsRef.current = jobs;
@@ -158,20 +177,26 @@ export default function App() {
       const results = await Promise.allSettled([
         applicationsAPI.syncNaukri(),
         applicationsAPI.syncFoundit(),
+        ...CAREER_PORTAL_KEYS.map((key) => applicationsAPI.syncCareer(key)),
       ]);
       lastAppliedSyncAtRef.current = Date.now();
-      const updatedCount = results.reduce(
-        (sum, r) => sum + (r.status === "fulfilled" ? r.value.data?.updated || 0 : 0),
+      // Count both advanced ("updated") and newly imported career-portal applies.
+      const changedCount = results.reduce(
+        (sum, r) =>
+          sum +
+          (r.status === "fulfilled"
+            ? (r.value.data?.updated || 0) + (r.value.data?.imported || 0)
+            : 0),
         0,
       );
-      if (updatedCount > 0) {
+      if (changedCount > 0) {
         // Auto-detected the apply: confirm it with a toast and clear any pending
         // "Did you apply?" prompt, so the user never has to confirm manually.
         setApplyNotice(null);
         toast.success(
-          updatedCount === 1
-            ? "Application confirmed as applied ✓"
-            : `${updatedCount} applications confirmed as applied ✓`,
+          changedCount === 1
+            ? "Application synced from your portal ✓"
+            : `${changedCount} applications synced from your portals ✓`,
         );
         await refreshLiveData({ silent: true });
       }
@@ -185,6 +210,19 @@ export default function App() {
   useEffect(() => {
     void syncAppliedStatus(true);
   }, [syncAppliedStatus]);
+
+  // Load the user's "recommend at least %" threshold once (drives the Dashboard
+  // Shortlists count and the Jobs "Recommended" label — no hardcoded cutoff).
+  useEffect(() => {
+    if (!isAuthed()) return;
+    preferencesAPI
+      .get()
+      .then((res) => {
+        const value = Number(res.data?.auto_apply_min_score);
+        if (Number.isFinite(value) && value > 0) setRecommendThreshold(value);
+      })
+      .catch(() => {});
+  }, [location.key]);
 
   // Always force a fresh applied-status sync when the user opens the Tracker, so
   // statuses update on their own without needing the manual refresh button.
@@ -302,7 +340,7 @@ export default function App() {
   const fetchSearchPage = (query: string, locations: string[] | undefined, page: number) =>
     jobsAPI.search({
       query,
-      portals: ["naukri", "foundit"],
+      portals: ["naukri", "foundit", "internshala"],
       page,
       results_per_page: 20,
       locations,
@@ -348,7 +386,6 @@ export default function App() {
         // the user opens its portal / applies.
         const searchMatches: JobMatch[] = (response.data?.matches || []).map(mapJobMatch);
         setJobs(searchMatches);
-        setSearchResultIds(searchMatches.map((match) => match.id));
       } catch (caught) {
         setManualSearchNotice("");
         setLiveError(apiErrorMessage(caught, "Could not complete manual job search."));
@@ -358,6 +395,25 @@ export default function App() {
     },
     []
   );
+
+  useEffect(() => {
+    const token = localStorage.getItem("access_token");
+    if (!token) {
+      autoProfileSearchTokenRef.current = null;
+      return;
+    }
+    if (AUTO_PROFILE_SEARCH_EXCLUDED_PATHS.has(location.pathname)) return;
+    if (autoProfileSearchTokenRef.current === token) return;
+    if (manualSearchLoading) return;
+
+    if (jobsRef.current.length > 0 || lastSearchSummary) {
+      autoProfileSearchTokenRef.current = token;
+      return;
+    }
+
+    autoProfileSearchTokenRef.current = token;
+    void runManualSearch("");
+  }, [lastSearchSummary, location.pathname, manualSearchLoading, runManualSearch]);
 
   const loadMoreResults = useCallback(async () => {
     if (searchLoadingMore || !searchHasMore) return;
@@ -385,7 +441,6 @@ export default function App() {
       }
       if (newJobs.length) {
         setJobs((current) => [...current, ...newJobs]);
-        setSearchResultIds((current) => [...(current || []), ...newJobs.map((job) => job.id)]);
       }
       // Hide "Load more" once there are no further jobs to fetch.
       setSearchHasMore(backendHasMore && newJobs.length > 0);
@@ -570,6 +625,7 @@ export default function App() {
     autoSyncState,
     lastAutoSyncedAt,
     onSearch: runManualSearch,
+    onDismissSearchNotice: () => setManualSearchNotice(""),
     onRetry: async () => {
       await Promise.all([refreshLiveData(), refreshPortalHealth()]);
     },
@@ -598,7 +654,7 @@ export default function App() {
         element={
           <PrivateRoute>
             <LiveShell {...shellProps}>
-              <Dashboard jobs={jobs} applications={applications} onApprove={approveJob} onSkip={skipJob} onQueue={queueJob} onRefresh={refreshLiveData} applyingLocked={Boolean(pendingApply)} />
+              <Dashboard jobs={jobs} applications={applications} onApprove={approveJob} onSkip={skipJob} onQueue={queueJob} onRefresh={refreshLiveData} applyingLocked={Boolean(pendingApply)} recommendThreshold={recommendThreshold} />
             </LiveShell>
           </PrivateRoute>
         }
@@ -608,7 +664,7 @@ export default function App() {
         element={
           <PrivateRoute>
             <LiveShell {...shellProps}>
-              <Jobs jobs={jobs} onApprove={approveJob} onSkip={skipJob} onQueue={queueJob} onRefresh={refreshLiveData} onSearch={runManualSearch} searchLoading={manualSearchLoading} lastSearchSummary={lastSearchSummary} searchResultIds={searchResultIds} onClearSearchScope={() => setSearchResultIds(null)} onLoadMore={loadMoreResults} hasMore={searchHasMore} loadingMore={searchLoadingMore} applyingLocked={Boolean(pendingApply)} />
+              <Jobs jobs={jobs} onApprove={approveJob} onSkip={skipJob} onQueue={queueJob} onRefresh={refreshLiveData} onSearch={runManualSearch} searchLoading={manualSearchLoading} lastSearchSummary={lastSearchSummary} onLoadMore={loadMoreResults} hasMore={searchHasMore} loadingMore={searchLoadingMore} applyingLocked={Boolean(pendingApply)} recommendThreshold={recommendThreshold} />
             </LiveShell>
           </PrivateRoute>
         }
@@ -661,6 +717,7 @@ function LiveShell({
   autoSyncState,
   lastAutoSyncedAt,
   onSearch,
+  onDismissSearchNotice,
   onRetry,
   onViewTracker,
   onReconnectPortal,
@@ -679,12 +736,27 @@ function LiveShell({
   autoSyncState: AutoSyncState;
   lastAutoSyncedAt: string;
   onSearch: (query: string, options?: ManualSearchOptions) => void | Promise<void>;
+  onDismissSearchNotice: () => void;
   onRetry: () => void | Promise<unknown>;
   onViewTracker: (status?: ApplicationStatus) => void;
   onReconnectPortal: (portal: string) => void;
   onConfirmOutcome: (status: ApplicationStatus) => void | Promise<void>;
   children: ReactNode;
 }) {
+  const [pageLoading, setPageLoading] = useState<PageLoadingState | null>(null);
+  const blockingOverlay = searchLoading
+    ? {
+        title: "Finding live Naukri jobs...",
+        description: `Fetching jobs from ${searchQuery ? `"${searchQuery}"` : "your saved profile"}, scoring them against your resume, and saving curated matches.`,
+      }
+    : loading
+      ? {
+          title: "Loading Hunter data...",
+          description: "Refreshing your saved matches, applications, and portal status.",
+        }
+      : null;
+  const loadingOverlay = blockingOverlay || pageLoading;
+
   return (
     <AppShell
       metrics={metrics}
@@ -695,25 +767,32 @@ function LiveShell({
       autoSyncState={autoSyncState}
       lastAutoSyncedAt={lastAutoSyncedAt}
     >
-      {searchLoading && <SearchProgressBanner query={searchQuery} />}
-      {portalIssues.length > 0 && <PortalReconnectBanner issue={portalIssues[0]} onReconnectPortal={onReconnectPortal} />}
-      {applyNotice && <ApplyNoticeBanner notice={applyNotice} pendingApply={pendingApply} onViewTracker={onViewTracker} onReconnectPortal={onReconnectPortal} onConfirmOutcome={onConfirmOutcome} />}
-      {!searchLoading && (searchNotice || loading || error) && (
-        <div className={`mb-4 rounded-lg border px-4 py-3 text-sm ${error ? "border-[var(--state-error)] bg-white text-[var(--state-error)]" : "border-[var(--border-default)] bg-[var(--bg-surface)] text-[var(--text-muted)]"}`}>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <span className="inline-flex items-center gap-2">
-              {!error && !loading && <CheckCircle size={16} style={{ color: "var(--state-success)" }} />}
-              {error || (loading ? "Loading live Hunter data..." : searchNotice)}
-            </span>
-            {error && (
-              <button type="button" onClick={() => void onRetry()} className="text-sm font-medium text-[var(--accent-primary)]">
-                Retry
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-      {children}
+      <PageLoadingContext.Provider value={setPageLoading}>
+        {!blockingOverlay && portalIssues.length > 0 && <PortalReconnectBanner issue={portalIssues[0]} onReconnectPortal={onReconnectPortal} />}
+        {!blockingOverlay && applyNotice && <ApplyNoticeBanner notice={applyNotice} pendingApply={pendingApply} onViewTracker={onViewTracker} onReconnectPortal={onReconnectPortal} onConfirmOutcome={onConfirmOutcome} />}
+        {!blockingOverlay && !searchLoading && (searchNotice || error) && (
+          <Alert
+            variant={error ? "destructive" : "success"}
+            aria-live="polite"
+            className="mb-4"
+            onClose={!error && searchNotice ? onDismissSearchNotice : undefined}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
+                <AlertTitle>{error ? "Hunter could not finish that request" : "Search complete"}</AlertTitle>
+                <AlertDescription>{error || searchNotice}</AlertDescription>
+              </div>
+              {error && (
+                <button type="button" onClick={() => void onRetry()} className="font-semibold underline-offset-2 hover:underline">
+                  Retry
+                </button>
+              )}
+            </div>
+          </Alert>
+        )}
+        {!blockingOverlay && children}
+      </PageLoadingContext.Provider>
+      {loadingOverlay && <PageLoadingOverlay title={loadingOverlay.title} description={loadingOverlay.description} />}
       {pendingApply && <ApplyBlockingOverlay pendingApply={pendingApply} />}
     </AppShell>
   );
@@ -725,7 +804,7 @@ function ApplyBlockingOverlay({ pendingApply }: { pendingApply: PendingApply }) 
       <section className="w-full max-w-md rounded-lg border border-[var(--accent-primary)] bg-[var(--bg-surface)] p-5 shadow-2xl">
         <div className="flex items-start gap-4">
           <div className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-[var(--bg-elevated)] text-[var(--accent-primary)]">
-            <LoaderCircle size={22} className="animate-spin" />
+            <Spinner className="size-[22px]" />
           </div>
           <div className="min-w-0">
             <p className="text-base font-semibold text-[var(--text-primary)]">Opening {portalName(pendingApply.portal)}</p>
@@ -757,15 +836,8 @@ function ApplyNoticeBanner({
   onReconnectPortal: (portal: string) => void;
   onConfirmOutcome: (status: ApplicationStatus) => void | Promise<void>;
 }) {
-  const toneStyle =
-    notice.tone === "success"
-      ? { borderColor: "var(--state-success)", iconColor: "var(--state-success)" }
-      : notice.tone === "warning"
-        ? { borderColor: "var(--state-warning)", iconColor: "var(--state-warning)" }
-        : notice.tone === "error"
-          ? { borderColor: "var(--state-error)", iconColor: "var(--state-error)" }
-          : { borderColor: "var(--accent-primary)", iconColor: "var(--accent-primary)" };
   const Icon = notice.tone === "success" ? CheckCircle : notice.tone === "error" ? XCircle : notice.tone === "warning" ? AlertTriangle : Send;
+  const variant = notice.tone === "success" ? "success" : notice.tone === "warning" ? "warning" : notice.tone === "error" ? "destructive" : "info";
   const hasAction = Boolean(notice.action || notice.showTrackerAction);
   const actionLabel = notice.actionLabel || (notice.action === "portal" ? "Reconnect portal" : "View applied");
   const runAction = () => {
@@ -777,16 +849,11 @@ function ApplyNoticeBanner({
   };
 
   return (
-    <section className="mb-4 rounded-lg border bg-[var(--bg-surface)] px-4 py-3 text-sm shadow-sm" style={{ borderColor: toneStyle.borderColor }} aria-live="polite">
+    <Alert variant={variant} icon={pendingApply ? <Spinner /> : <Icon />} className="mb-4 rounded-lg shadow-sm" aria-live="polite">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex min-w-0 items-start gap-3">
-          <div className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[var(--bg-elevated)]" style={{ color: toneStyle.iconColor }}>
-            {pendingApply ? <LoaderCircle size={17} className="animate-spin" /> : <Icon size={17} />}
-          </div>
-          <div className="min-w-0">
-            <p className="font-semibold text-[var(--text-primary)]">{notice.title}</p>
-            <p className="mt-1 text-[var(--text-muted)]">{notice.message}</p>
-          </div>
+        <div className="min-w-0">
+          <p className="font-semibold">{notice.title}</p>
+          <p className="mt-1 opacity-90">{notice.message}</p>
         </div>
         {notice.confirmable ? (
           <div className="flex shrink-0 flex-wrap gap-2">
@@ -806,7 +873,7 @@ function ApplyNoticeBanner({
           </button>
         )}
       </div>
-    </section>
+    </Alert>
   );
 }
 
@@ -817,58 +884,30 @@ function PortalReconnectBanner({
   issue: PortalIssue;
   onReconnectPortal: (portal: string) => void;
 }) {
+  const [dismissed, setDismissed] = useState(false);
+  useEffect(() => setDismissed(false), [issue.portal]);
+  if (dismissed) return null;
   return (
-    <section className="mb-4 rounded-lg border border-[var(--state-warning)] bg-[var(--bg-surface)] px-4 py-3 text-sm shadow-sm" aria-live="polite">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex min-w-0 items-start gap-3">
-          <div className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[var(--bg-elevated)] text-[var(--state-warning)]">
-            <AlertTriangle size={17} />
-          </div>
-          <div className="min-w-0">
-            <p className="font-semibold text-[var(--text-primary)]">{issue.name} needs re-login</p>
-            <p className="mt-1 text-[var(--text-muted)]">{issue.message}</p>
-          </div>
-        </div>
-        <button type="button" onClick={() => onReconnectPortal(issue.portal)} className="air-button h-9 shrink-0 bg-[var(--accent-primary)] px-3 text-white hover:bg-[var(--accent-hover)]">
-          Reconnect {issue.name}
-          <ArrowRight size={14} />
-        </button>
-      </div>
-    </section>
-  );
-}
-
-function SearchProgressBanner({ query }: { query: string }) {
-  const steps = ["Connect", "Fetch", "Score", "Save"];
-  const sourceLabel = query ? `"${query}"` : "your saved profile";
-
-  return (
-    <section className="mb-4 overflow-hidden rounded-lg border border-[var(--accent-primary)] bg-[var(--bg-surface)] shadow-sm" aria-live="polite" aria-busy="true">
-      <div className="relative h-1 bg-[var(--bg-elevated)]">
-        <div className="hunter-search-progress absolute inset-y-0 left-0 w-1/3 rounded-full bg-[var(--accent-primary)]" />
-      </div>
-      <div className="flex flex-col gap-4 p-4 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex min-w-0 items-start gap-3">
-          <div className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-[var(--accent-primary)] text-white">
-            <LoaderCircle size={18} className="animate-spin" />
-          </div>
-          <div className="min-w-0">
-            <p className="text-sm font-semibold text-[var(--text-primary)]">Finding live Naukri jobs</p>
-            <p className="mt-1 truncate text-sm text-[var(--text-muted)]">
-              Fetching jobs from {sourceLabel}, scoring them against your resume, and saving curated matches to your review queue.
-            </p>
-          </div>
-        </div>
-        <div className="grid grid-cols-4 gap-2 text-xs">
-          {steps.map((step, index) => (
-            <div key={step} className="flex items-center gap-1.5 rounded-md border border-[var(--border-default)] bg-[var(--bg-elevated)] px-2 py-1.5 text-[var(--text-muted)]">
-              {index === 2 ? <Sparkles size={12} className="animate-pulse text-[var(--accent-primary)]" /> : <Search size={12} className="text-[var(--accent-primary)]" />}
-              <span>{step}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </section>
+    <Alert
+      variant="warning"
+      icon={<AlertTriangle />}
+      className="mb-4 shadow-sm"
+      aria-live="polite"
+      actions={
+        <>
+          <Button variant="ghost" size="sm" onClick={() => setDismissed(true)}>
+            Dismiss
+          </Button>
+          <Button variant="default" size="sm" onClick={() => onReconnectPortal(issue.portal)}>
+            Reconnect
+            <ArrowRight />
+          </Button>
+        </>
+      }
+    >
+      <AlertTitle>{issue.name} sign-in expired</AlertTitle>
+      <AlertDescription>{issue.message}</AlertDescription>
+    </Alert>
   );
 }
 
@@ -966,7 +1005,6 @@ function portalName(portal: string): string {
   const normalized = portal.toLowerCase();
   if (normalized === "naukri") return "Naukri";
   if (normalized === "foundit") return "Foundit";
-  if (normalized === "linkedin") return "LinkedIn";
   return portal ? portal.charAt(0).toUpperCase() + portal.slice(1) : "Portal";
 }
 
@@ -997,7 +1035,7 @@ function jobSnapshotPayload(job: JobMatch) {
     is_taleo: job.portal.toLowerCase() === "taleo",
     apply_method: job.applyMethod || "unknown",
     external_apply_url: job.externalApplyUrl || "",
-    portal_metadata: { source: "manual_search_session" },
+    portal_metadata: { source: "manual_search_session", company_logo_url: job.companyLogoUrl || "" },
   };
 }
 

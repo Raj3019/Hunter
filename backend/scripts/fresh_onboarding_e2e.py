@@ -332,9 +332,8 @@ def verify_naukri_connect_starts(page: Page, report: RunReport) -> None:
     page.get_by_role("link", name="Portals").click()
     expect(page.get_by_role("heading", name="Portal connections")).to_be_visible(timeout=20000)
     expect(page.get_by_text("Naukri").first).to_be_visible(timeout=10000)
-    expect(page.get_by_text("Public search").first).to_be_visible(timeout=10000)
-    expect(page.get_by_role("button", name="Browser login").first).to_be_visible(timeout=10000)
-    report.step("Verified Naukri public search is shown with optional browser login in Portals")
+    expect(page.get_by_text("Search works").first).to_be_visible(timeout=10000)
+    report.step("Verified Naukri row (public search + credential sign-in) is shown in Portals")
 
 
 def response_path(url: str) -> str:

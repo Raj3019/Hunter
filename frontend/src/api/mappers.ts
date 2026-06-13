@@ -49,9 +49,16 @@ export function mapJobMatch(row: AnyRecord): JobMatch {
     status: normalizeJobStatus(row.status),
     matchedSkills: stringArray(row.matched_skills),
     missingSkills: stringArray(row.missing_skills),
+    scoreBreakdown: (() => {
+      const b = asRecord(row.score_breakdown);
+      const merits = stringArray(b.merits);
+      const demerits = stringArray(b.demerits);
+      return merits.length || demerits.length ? { merits, demerits } : undefined;
+    })(),
     note: reasons.join(" ") || text(row.blocked_reason || row.failed_reason || row.notes),
     jdSummary: description ? summarize(description) : "No job description snapshot is available yet.",
     jdFullDescription: description,
+    companyLogoUrl: normalizeLogoUrl(companyLogoValue(job), text(job.portal || row.portal, "unknown")),
     tailoredResumeApproved: Boolean(row.tailored_resume_approved),
     tailoredResumeVersion: text(row.tailored_resume_version),
     applyMethod: text(job.apply_method, "unknown"),
@@ -232,8 +239,42 @@ function normalizeApplyUrl(value: unknown, portal: string): string {
   const normalizedPortal = portal.toLowerCase();
   if (normalizedPortal === "naukri") return `https://www.naukri.com${path}`;
   if (normalizedPortal === "foundit") return `https://www.foundit.in${path}`;
-  if (normalizedPortal === "linkedin") return `https://www.linkedin.com${path}`;
   return raw;
+}
+
+function normalizeLogoUrl(value: unknown, portal: string): string {
+  const raw = text(value);
+  if (!raw) return "";
+  if (/^https?:\/\//i.test(raw)) return raw;
+  if (raw.startsWith("//")) return `https:${raw}`;
+
+  const path = raw.startsWith("/") ? raw : `/${raw}`;
+  const normalizedPortal = portal.toLowerCase();
+  if (normalizedPortal === "naukri") return `https://www.naukri.com${path}`;
+  if (normalizedPortal === "foundit") return `https://www.foundit.in${path}`;
+  if (normalizedPortal === "internshala") return `https://internshala.com${path}`;
+  return raw;
+}
+
+function companyLogoValue(job: AnyRecord): unknown {
+  const metadata = asRecord(job.portal_metadata);
+  for (const key of [
+    "company_logo_url",
+    "companyLogoUrl",
+    "companyLogo",
+    "company_logo",
+    "logo_url",
+    "logoUrl",
+    "logo",
+  ]) {
+    if (metadata[key]) return metadata[key];
+    if (job[key]) return job[key];
+  }
+  const company = asRecord(metadata.company || job.company);
+  for (const key of ["logo", "logoUrl", "logo_url", "companyLogo", "company_logo_url"]) {
+    if (company[key]) return company[key];
+  }
+  return "";
 }
 
 function stringArray(value: unknown): string[] {

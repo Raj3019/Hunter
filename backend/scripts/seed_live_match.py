@@ -25,7 +25,7 @@ if str(ROOT) not in sys.path:
 from core.database import get_db  # noqa: E402
 
 
-SEED_PORTAL = "greenhouse"
+SEED_PORTAL = "foundit"
 SEED_JOB_ID = "hunter-seed-frontend-engineer-001"
 
 
@@ -108,7 +108,7 @@ def upsert_seed_match(db, user_id: str, job_id: str) -> None:
             "Dashboard and API integration experience aligns",
         ],
         "matched_skills": ["React", "TypeScript", "FastAPI", "Playwright"],
-        "missing_skills": ["Production Greenhouse apply verification"],
+        "missing_skills": ["Production apply verification"],
         "status": "pending",
     }
     db.table("job_matches").upsert(payload, on_conflict="user_id,job_id").execute()

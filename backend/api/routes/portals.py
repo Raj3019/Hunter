@@ -1,7 +1,6 @@
 import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -14,7 +13,12 @@ from portals.foundit.session import (
     login_with_foundit_credentials,
     set_auth_failed as set_foundit_auth_failed,
 )
-from portals.naukri.connect import get_naukri_connect_status, start_naukri_connect
+from portals.career_portals import (
+    career_status,
+    is_career_portal,
+    set_career_auth_failed,
+    verify_login as verify_career_login,
+)
 from portals.naukri.session import login_with_credentials, naukri_status, set_auth_failed
 
 logger = logging.getLogger(__name__)
@@ -37,6 +41,11 @@ class FounditTokenIn(BaseModel):
 
 
 class FounditCredentialsIn(BaseModel):
+    username: str
+    password: str
+
+
+class CareerCredentialsIn(BaseModel):
     username: str
     password: str
 
@@ -105,21 +114,6 @@ async def disconnect_naukri(user_id: str = Depends(get_current_user_id)):
     return {"success": True, "portal": "naukri", "disconnected": True}
 
 
-@router.post("/naukri/connect/start")
-async def start_naukri_browser_connect(user_id: str = Depends(get_current_user_id)):
-    status = start_naukri_connect(user_id)
-    return {"success": True, "portal": "naukri", "connection": status}
-
-
-@router.get("/naukri/connect/status")
-async def get_naukri_browser_connect_status(
-    connection_id: Optional[str] = None,
-    user_id: str = Depends(get_current_user_id),
-):
-    status = get_naukri_connect_status(user_id, connection_id)
-    return {"success": True, "portal": "naukri", "connection": status}
-
-
 @router.post("/foundit/token")
 async def save_foundit_token(
     body: FounditTokenIn,
@@ -185,15 +179,61 @@ async def disconnect_foundit(user_id: str = Depends(get_current_user_id)):
     return {"success": True, "portal": "foundit", "disconnected": True}
 
 
-@router.post("/linkedin/setup")
-async def confirm_linkedin_setup(user_id: str = Depends(get_current_user_id)):
+@router.post("/{portal_key}/credentials")
+async def save_career_credentials(
+    portal_key: str,
+    body: CareerCredentialsIn,
+    user_id: str = Depends(get_current_user_id),
+):
+    """Connect a company career portal (Wipro/HCLTech/Infosys) with encrypted credentials.
+
+    The password is validated with a live login, encrypted immediately, and never
+    returned. The stored login powers unattended applied-status auto-detection.
+    """
+    if not is_career_portal(portal_key):
+        raise HTTPException(status_code=404, detail="Unknown career portal.")
+
+    username = body.username.strip()
+    if not username or not body.password:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Enter your {portal_key.title()} careers email and password.",
+        )
+
+    try:
+        await asyncio.to_thread(verify_career_login, portal_key, username, body.password)
+    except Exception as exc:
+        logger.warning("%s credential login failed for user %s: %s", portal_key, user_id, exc)
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Could not sign in to {portal_key.title()} careers with those credentials. "
+                "Check your email/password and try again."
+            ),
+        ) from exc
+
+    encrypted = encrypt(body.password)
+    body.password = ""
+
     db = get_db()
     db.table("portal_tokens").upsert({
         "user_id": user_id,
-        "portal": "linkedin",
-        "chrome_profile_path": "./chrome_profiles/linkedin",
+        "portal": portal_key,
+        "username": username,
+        "password_encrypted": encrypted,
     }, on_conflict="user_id,portal").execute()
-    return {"success": True, "portal": "linkedin"}
+    set_career_auth_failed(db, user_id, portal_key, False)
+
+    return {"success": True, "portal": portal_key, "username": username}
+
+
+@router.delete("/career/{portal_key}")
+async def disconnect_career(portal_key: str, user_id: str = Depends(get_current_user_id)):
+    if not is_career_portal(portal_key):
+        raise HTTPException(status_code=404, detail="Unknown career portal.")
+    db = get_db()
+    db.table("portal_tokens").delete().eq("user_id", user_id).eq("portal", portal_key).execute()
+    return {"success": True, "portal": portal_key, "disconnected": True}
 
 
 @router.get("/status")
@@ -201,7 +241,7 @@ async def get_portal_status(user_id: str = Depends(get_current_user_id)):
     db = get_db()
     tokens = db.table("portal_tokens").select(
         "portal, profile_id, chrome_profile_path, bearer_token, expires_at, "
-        "username, password_encrypted, created_at"
+        "username, password_encrypted, auth_failed_at, created_at"
     ).eq("user_id", user_id).execute()
     portal_rows = await asyncio.to_thread(_decorate_portal_statuses, tokens.data or [], user_id)
 
@@ -230,6 +270,8 @@ def _decorate_portal_statuses(rows: list[dict], user_id: str) -> list[dict]:
             safe_row.update(_check_naukri_status(row, user_id))
         elif row.get("portal") == "foundit":
             safe_row.update(foundit_status(row))
+        elif is_career_portal(row.get("portal", "")):
+            safe_row.update(career_status(row))
 
         decorated.append(safe_row)
     return decorated

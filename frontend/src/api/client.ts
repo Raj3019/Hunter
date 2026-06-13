@@ -1,9 +1,14 @@
-import axios from "axios";
+import axios, { type AxiosProgressEvent } from "axios";
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || "http://127.0.0.1:8000",
 });
 const MANUAL_SEARCH_TIMEOUT_MS = 180_000;
+
+// Company career portals with clean credential login + applied-status auto-detect
+// (SuccessFactors: Wipro/HCLTech; Keycloak+REST: Infosys). Adding another is a
+// backend registry entry + a key here.
+export const CAREER_PORTAL_KEYS = ["wipro", "hcltech", "infosys", "capgemini"];
 
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem("access_token");
@@ -27,14 +32,15 @@ api.interceptors.response.use(
 
 export const authAPI = {
   login: (email: string, password: string) => api.post("/api/auth/login", { email, password }),
-  register: (email: string, password: string) => api.post("/api/auth/register", { email, password }),
+  register: (email: string, password: string, fullName: string) =>
+    api.post("/api/auth/register", { email, password, full_name: fullName }),
 };
 
 export const resumeAPI = {
-  upload: (file: File) => {
+  upload: (file: File, onUploadProgress?: (event: AxiosProgressEvent) => void) => {
     const form = new FormData();
     form.append("file", file);
-    return api.post("/api/resume/upload", form);
+    return api.post("/api/resume/upload", form, { onUploadProgress });
   },
   getParsed: () => api.get("/api/resume/parsed"),
 };
@@ -49,9 +55,6 @@ export const portalsAPI = {
   saveNaukriCredentials: (username: string, password: string) =>
     api.post("/api/portals/naukri/credentials", { username, password }),
   disconnectNaukri: () => api.delete("/api/portals/naukri"),
-  startNaukriConnect: () => api.post("/api/portals/naukri/connect/start"),
-  getNaukriConnectStatus: (connection_id?: string) =>
-    api.get("/api/portals/naukri/connect/status", { params: connection_id ? { connection_id } : {} }),
   saveNaukriToken: (bearer_token: string, profile_id: string) =>
     api.post("/api/portals/naukri/token", { bearer_token, profile_id }),
   saveFounditToken: (bearer_token: string, user_id_str: string) =>
@@ -59,7 +62,9 @@ export const portalsAPI = {
   saveFounditCredentials: (username: string, password: string) =>
     api.post("/api/portals/foundit/credentials", { username, password }),
   disconnectFoundit: () => api.delete("/api/portals/foundit"),
-  confirmLinkedIn: () => api.post("/api/portals/linkedin/setup"),
+  saveCareerCredentials: (portalKey: string, username: string, password: string) =>
+    api.post(`/api/portals/${portalKey}/credentials`, { username, password }),
+  disconnectCareer: (portalKey: string) => api.delete(`/api/portals/career/${portalKey}`),
 };
 
 export const jobsAPI = {
@@ -92,6 +97,7 @@ export const applicationsAPI = {
     api.patch(`/api/applications/${id}`, { status, notes }),
   syncNaukri: () => api.post("/api/applications/sync-naukri"),
   syncFoundit: () => api.post("/api/applications/sync-foundit"),
+  syncCareer: (portalKey: string) => api.post(`/api/applications/sync-career/${portalKey}`),
 };
 
 export const companyAccountsAPI = {

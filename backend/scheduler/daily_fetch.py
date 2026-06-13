@@ -192,33 +192,6 @@ async def _fetch_all_portals(db, user_id: str, prefs: dict) -> list:
         except Exception as exc:
             logger.error("[Scheduler] Foundit fetch failed: %s", exc)
 
-    if "linkedin" in tokens:
-        try:
-            from portals.linkedin.jobs import search_linkedin_jobs
-
-            linkedin_jobs = await asyncio.wait_for(
-                search_linkedin_jobs(keyword=keyword, location=location, max_jobs=25),
-                timeout=120,
-            )
-            jobs.extend(linkedin_jobs)
-            logger.info("[LinkedIn] %s jobs", len(linkedin_jobs))
-        except Exception as exc:
-            logger.error("[Scheduler] LinkedIn fetch failed: %s", exc)
-
-    try:
-        from portals.greenhouse.jobs import search_greenhouse_jobs
-
-        greenhouse_jobs = await search_greenhouse_jobs(
-            keyword=keyword,
-            companies=["phonepe", "groww", "postman"],
-            location_filter=location,
-            max_per_company=10,
-        )
-        jobs.extend(greenhouse_jobs)
-        logger.info("[Greenhouse] %s jobs", len(greenhouse_jobs))
-    except Exception as exc:
-        logger.error("[Scheduler] Greenhouse fetch failed: %s", exc)
-
     return jobs
 
 

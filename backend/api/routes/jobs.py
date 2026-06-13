@@ -104,6 +104,16 @@ async def search_jobs(body: ManualSearchIn, user_id: str = Depends(get_current_u
     if lock_key in _manual_search_locks:
         raise HTTPException(status_code=409, detail="Search is already running.")
 
+    # When the client doesn't specify a positive threshold, use the user's saved
+    # "recommend at least" preference (Settings) so "Recommended" reflects their bar.
+    effective_min_score = body.min_score
+    if effective_min_score <= 0:
+        try:
+            prefs = db.table("preferences").select("auto_apply_min_score").eq("user_id", user_id).maybe_single().execute()
+            effective_min_score = int((prefs.data or {}).get("auto_apply_min_score") or 60)
+        except Exception:
+            effective_min_score = 60
+
     _manual_search_locks.add(lock_key)
     try:
         return await asyncio.wait_for(
@@ -116,7 +126,7 @@ async def search_jobs(body: ManualSearchIn, user_id: str = Depends(get_current_u
                 portals=body.portals,
                 page=body.page,
                 results_per_page=body.results_per_page,
-                min_score=body.min_score,
+                min_score=effective_min_score,
                 freshness_days=body.freshness_days,
                 save_as_preferences=body.save_as_preferences,
             ),
@@ -622,11 +632,6 @@ async def _apply_for_portal(db, user_id: str, job: Job, resume_path: str = "") -
 
     user_profile = _get_user_profile(db, user_id)
 
-    if job.portal == "linkedin":
-        from portals.linkedin.apply import linkedin_easy_apply
-
-        return await linkedin_easy_apply(job, user_profile)
-
     if job.portal == "workday":
         from portals.workday.apply import workday_apply
 
@@ -640,13 +645,6 @@ async def _apply_for_portal(db, user_id: str, job: Job, resume_path: str = "") -
         if not resume_path:
             return {"success": False, "reason": "Resume file unavailable for Taleo upload"}
         return await taleo_apply(job, resume_path, user_profile)
-
-    if job.portal == "greenhouse":
-        from portals.greenhouse.apply import greenhouse_apply
-
-        if not resume_path:
-            return {"success": False, "reason": "Resume file unavailable for Greenhouse upload"}
-        return await greenhouse_apply(job, resume_path, user_profile)
 
     return {"success": False, "reason": f"No apply handler for portal: {job.portal}"}
 
@@ -921,8 +919,6 @@ def _normalize_portal_url(url: str, portal: str) -> str:
         return f"https://www.naukri.com{path}"
     if normalized_portal == "foundit":
         return f"https://www.foundit.in{path}"
-    if normalized_portal == "linkedin":
-        return f"https://www.linkedin.com{path}"
     return value
 
 

@@ -114,7 +114,7 @@ def save_preferences(headers: dict[str, str]) -> None:
         "auto_apply_enabled": False,
         "auto_apply_daily_limit": 10,
         "auto_apply_min_score": 75,
-        "auto_apply_allowed_portals": ["naukri", "foundit", "greenhouse"],
+        "auto_apply_allowed_portals": ["naukri", "foundit", "internshala"],
         "safe_apply_start_time": "09:00",
         "safe_apply_end_time": "20:00",
         "require_tailored_resume_approval": True,

@@ -2,7 +2,32 @@
 
 ## What This Is
 
-Integration with Internshala.com — the primary portal for internships and fresher jobs in India. Uses their internal API for search (weaker bot protection than Naukri) and Playwright browser automation for the application form (which requires clicking through a multi-step modal). Reuses the `Job` dataclass from the Naukri module.
+Integration with Internshala.com — the primary portal for internships and fresher jobs in India. Used for unauthenticated public search and Playwright browser automation for the application form. Reuses the `Job` dataclass from the Naukri module.
+
+> **Implementation note (June 2026).** Internshala is now wired into live multi-portal manual search (Naukri + Foundit + Internshala). Two things differ from the original plan:
+> - **Search is SEO-path based, not query params.** The old `/jobs/ajax?search_po=…&location_po=…` params returned unfiltered junk. Free-text keyword search uses the `keywords-` path prefix: `/{section}/keywords-<kw>-in-<loc>/ajax/` (e.g. `/jobs/keywords-react-developer-in-mumbai/ajax/`). The `/ajax/` suffix returns the compact job-card fragment parsed by `_parse_html`. No login needed. Page-1 only (the fragment has no reliable pagination). See `portals/internshala/jobs.py::_search_by_path`.
+> - **Two ids per listing.** The 7-digit `internshipid` (card attribute) vs the 10-digit detail-URL id (end of the title href). Only the **10-digit** id also appears on the "My Applications" page, so `job_id` is keyed on it for applied-status matching.
+
+## Applied-Status Auto-Detect — REMOVED (manual-confirm only)
+
+> **Update (June 2026, production-only cleanup).** The browser-based applied-status
+> detector was **removed**. Internshala's API login is reCAPTCHA-gated (risk-based — real
+> browsers pass invisibly, but a headless `requests` login is challenged), so the only
+> detector option was scraping a **server-side persistent Chrome profile** with Playwright —
+> which can't run on a hosted server (the browser would open on the server, not the user's
+> screen, and one profile dir can't serve many users). The deleted pieces were
+> `portals/internshala/applied.py`, `services/internshala_apply_sync.py`, the
+> `POST /api/applications/sync-internshala` route, `setup_browser_session.py`, and the
+> `chrome_profiles/internshala` profile.
+>
+> **Internshala applied-status is now manual** — the one-tap "I applied" / "Could not apply"
+> confirm in Tracker. Search (public, unauthenticated) and Open-portal via the manual login
+> link are unaffected and still work in production.
+>
+> Re-enabling auto-detect later means picking a server-compatible approach (Gmail
+> email-parsing, a browser extension, or a remote cloud browser). The full rationale +
+> options/drawbacks live in `docs/context/production-readiness.md` → "Applied-status
+> auto-detect in production".
 
 ## Prerequisites
 

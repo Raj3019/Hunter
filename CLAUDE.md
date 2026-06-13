@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A job automation web app that:
 1. Takes the user's resume + job preferences
-2. Searches jobs across multiple Indian job portals (Naukri, Foundit, Internshala, LinkedIn, Workday sites, Taleo sites, TCS, Infosys, etc.)
+2. Searches jobs across multiple Indian job portals (Naukri, Foundit, Internshala, Workday sites, Taleo sites, TCS, Infosys, etc.)
 3. Scores jobs against the resume using AI
 4. Tailors resumes per job description (user approves before apply)
 5. Applies automatically with safe rate limiting
@@ -44,7 +44,6 @@ job-automation/
 │   │   ├── naukri/                  # Reverse-engineered internal API
 │   │   ├── foundit/                 # Reverse-engineered internal API
 │   │   ├── internshala/             # API search + Playwright apply
-│   │   ├── linkedin/                # Playwright only (persistent Chrome profile)
 │   │   ├── workday/                 # Playwright (covers 100+ companies)
 │   │   ├── taleo/                   # Playwright (covers HCL, Oracle, etc.)
 │   │   └── custom/
@@ -97,8 +96,7 @@ npm run build    # must pass before moving to next phase
 |---|---|
 | Naukri | Reverse-engineered internal JSON API; nkparam header required for search |
 | Foundit | Reverse-engineered internal JSON API |
-| Internshala | Internal API for search; Playwright for apply form |
-| LinkedIn | Playwright only — persistent Chrome profile (user logs in manually once) |
+| Internshala | Public API for search (unauthenticated); manual login link for apply (the user logs in in their own browser). Login is reCAPTCHA-gated, so there is no server-side credential login |
 | Workday sites | Playwright — one generic handler covers 100+ companies |
 | Taleo sites | Playwright — iframes; one handler covers HCL, Oracle, etc. |
 | TCS / Infosys / company portals | Playwright + saved (encrypted) credentials |
@@ -159,7 +157,7 @@ See `docs/job-automation-implementation new.md` for the full phase-by-phase impl
 2. FastAPI + Supabase schema + resume upload/parser
 3. AI scorer/tailor + Foundit + APScheduler
 4. React frontend (4 pages)
-5. LinkedIn + Internshala
+5. Internshala (LinkedIn removed — see `docs/context/production-readiness.md`)
 6. Workday automation
 7. Taleo + TCS iBegin + Infosys
 8. Company account login/apply (Phase 12) — encrypted credentials

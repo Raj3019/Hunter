@@ -1,5 +1,15 @@
 # Feature Spec 08b — Greenhouse Portal
 
+> ⛔ **REMOVED (June 2026).** This portal was deleted from the codebase. The
+> company-slug registry went fully stale — every Indian company that used
+> Greenhouse (Razorpay, CRED, Meesho, Swiggy, Zepto, etc.) has left it or re-keyed
+> its slug, so a live search returned **0 results across the entire registry**.
+> Greenhouse is a US-startup ATS whose remaining coverage overlaps what Naukri
+> already aggregates, and keeping the slugs current is unbounded maintenance. The
+> `backend/portals/greenhouse/` package, `test_greenhouse.py`, the apply dispatch,
+> and the scheduler fetch block were removed. This spec is kept for history only.
+> If revived, it needs a slug-rediscovery pass first. See `progress-tracker.md`.
+
 ## What This Is
 
 Greenhouse is the ATS used by the best-paying Indian tech companies — Swiggy, CRED, Razorpay, Meesho, PhonePe, Zepto, Groww, BrowserStack, Postman, and dozens more. It is also the **easiest portal to build** because Greenhouse provides a completely free, public, no-authentication JSON API for job listings. No browser needed for search — pure `httpx` calls returning clean JSON. Apply is handled via Playwright on a standardised form that is nearly identical across all companies.

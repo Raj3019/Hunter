@@ -318,11 +318,36 @@ class FounditJobClient:
             "easyApply",
             "jobSource",
         }
-        return {
+        metadata = {
             key: item.get(key)
             for key in keys
             if key in item and item.get(key) not in (None, "")
         }
+        company_logo_url = self._company_logo_url(item)
+        if company_logo_url:
+            metadata["company_logo_url"] = company_logo_url
+        return metadata
+
+    def _company_logo_url(self, item: dict) -> str:
+        for key in (
+            "companyLogo",
+            "companyLogoUrl",
+            "company_logo_url",
+            "logoUrl",
+            "logoURL",
+            "logo",
+            "logoPath",
+        ):
+            value = item.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        for key in ("company", "companyDetails", "companyInfo", "recruiterCompany"):
+            value = item.get(key)
+            if isinstance(value, dict):
+                nested = self._company_logo_url(value)
+                if nested:
+                    return nested
+        return ""
 
     def _classify_apply_method(self, metadata: dict) -> str:
         # Quick Apply = applies natively on Foundit; otherwise it redirects to the

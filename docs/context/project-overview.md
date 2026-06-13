@@ -16,7 +16,7 @@ Hunter does not replace the job portal. The original job remains on the source p
 
 1. User uploads their PDF resume; the app parses and displays the extracted data used for match scoring and tailoring.
 2. User sets job preferences (skills, titles, locations, work type, salary range, companies to avoid) used for job fetching.
-3. Naukri runs as public search in the MVP; browser login is optional and never required for search.
+3. Naukri runs as public search in the MVP; an optional credential sign-in (encrypted email/password, server-side re-login) powers personalized recommendations + applied-status, but is never required for search.
 4. User can optionally connect portals and company accounts when those flows are needed.
 5. User can run Manual Job Search from the Jobs/top-bar search field to fetch from saved preferences, optionally override the role query, score with the resume, and save live matches immediately.
 6. Daily at 8am IST the scheduler also fetches jobs from saved preferences, stores job snapshots, scores them against the resume with AI, and saves matches above 60.
@@ -54,7 +54,7 @@ Hunter does not replace the job portal. The original job remains on the source p
 
 ### Portal Management
 
-- Naukri public search for the MVP, with optional browser login for saved-session features.
+- Naukri public search for the MVP, with optional encrypted-credential sign-in for saved-session features (recommendations + applied-status).
 - Bearer token storage for API-based portals where needed, such as Foundit.
 - Persistent Chrome profiles for Playwright-based portals (LinkedIn, Internshala, Workday, Taleo).
 - Encrypted credential storage for company portals that require a registered account.
@@ -89,3 +89,20 @@ Hunter does not replace the job portal. The original job remains on the source p
 4. Broad unattended auto-apply is not exposed in MVP; future auto-submit requires explicitly verified official/native flows.
 5. Tailored resume drafts are generated as job-specific artifacts, shown to the user before use, and no fabricated experience appears in the output.
 6. Application status updates appear in the Tracker within seconds of the user confirming the portal outcome.
+
+## Future Enhancements (Backlog)
+
+Captured 2026-06-11 after reviewing the open-source `adrianhajdin/job_pilot` ("JobPilot") project. These are **additive to the assist-only flow** — none change the no-auto-apply / per-portal-tracking design. To implement later.
+
+- **Company research dossier + interview prep** (highest value): for a selected match, research the company from public web pages and build a structured dossier — company overview, tech stack, culture, "why the role exists", and interview prep. Hunter currently stores only the job snapshot; this adds context the user reviews before opening the portal. No ToS risk (public pages). This is the one feature where a small, bounded LLM research routine is worth it (see "agent" note below).
+- **Per-job cover-letter generation**: extend the existing AI tailoring layer (`ai/resume_tailor.py`, `ai/qa_answerer.py`) to also produce a tailored cover letter per job, shown as a reviewable draft (never auto-sent), mirroring the tailored-resume artifact lifecycle.
+- **Generate a clean PDF résumé from profile data**: an additive export option alongside the DOCX tailored drafts (`architecture.md` already flags PDF as a future additive export layer).
+- **Recent-activity dashboard feed**: a clearer activity feed on the Dashboard (searches run, matches saved, applies confirmed), optionally with lightweight analytics.
+
+### Note: do we need to be an "AI agent" like JobPilot?
+
+**No — and this is a deliberate design choice, recorded here.** JobPilot brands itself an "autonomous AI agent," but (verified from its code) its implemented flow is a mostly deterministic pipeline (Adzuna search → GPT-4o score → company research → resume/cover-letter tailoring) plus an **experimental, unfinished** Browserbase/Stagehand auto-apply path. Hunter does not need an agent rearchitecture because:
+
+- Hunter's pipeline (search → score → tailor → open portal → reconcile applied-status) is deterministic and already built as discrete services; autonomous LLM-driven looping would add risk and unpredictability and conflicts with the assist-only invariant (no unattended actions).
+- Hunter's hard, differentiating capability — **per-portal applied-status detection** — is an integration / reverse-engineering problem, not an agentic one. An "agent" wouldn't help there. (Notably, JobPilot has **no applied-status tracking at all** — its `jobs` table has no status column.)
+- The only place an LLM-driven multi-step pattern genuinely helps is the **company research dossier** above, which can be a contained sub-task — not an app-wide change.

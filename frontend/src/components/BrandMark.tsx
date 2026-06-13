@@ -1,13 +1,23 @@
-export function BrandMark({ compact = false }: { compact?: boolean }) {
+import { Target } from "lucide-react";
+
+export function BrandMark({
+  compact = false,
+  eyebrow = "Job automation suite",
+}: {
+  compact?: boolean;
+  eyebrow?: string;
+}) {
   return (
-    <div className="flex items-center gap-3">
-      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--accent-primary)] text-sm font-semibold text-white shadow-sm">
-        H
+    <div className="flex items-center gap-2.5">
+      <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-pine text-white shadow-sm">
+        <Target className="h-4 w-4 stroke-[2.5]" />
       </div>
       {!compact && (
-        <div>
-          <p className="text-base font-semibold leading-none tracking-wide">Hunter</p>
-          <p className="mt-1 text-xs text-[var(--text-muted)]">Job automation suite</p>
+        <div className="leading-none">
+          <span className="block font-display text-sm font-extrabold tracking-tight text-brand-pine">Hunter.sh</span>
+          <span className="-mt-0.5 block font-mono text-[8px] font-bold uppercase tracking-wider text-brand-clay">
+            {eyebrow}
+          </span>
         </div>
       )}
     </div>

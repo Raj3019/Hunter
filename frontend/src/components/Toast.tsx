@@ -1,5 +1,5 @@
-import { AlertTriangle, CheckCircle2, Info, X } from "lucide-react";
 import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 type ToastType = "success" | "error" | "info";
 type ToastItem = { id: number; type: ToastType; message: string };
@@ -60,31 +60,30 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
-const TONE: Record<ToastType, { color: string; Icon: typeof CheckCircle2 }> = {
-  success: { color: "var(--state-success)", Icon: CheckCircle2 },
-  error: { color: "var(--state-error)", Icon: AlertTriangle },
-  info: { color: "var(--accent-primary)", Icon: Info },
+const TYPE_TO_VARIANT: Record<ToastType, "success" | "destructive" | "info"> = {
+  success: "success",
+  error: "destructive",
+  info: "info",
+};
+
+const TYPE_TO_TITLE: Record<ToastType, string> = {
+  success: "Done",
+  error: "Action needs attention",
+  info: "Heads up",
 };
 
 function ToastCard({ toast, onClose }: { toast: ToastItem; onClose: () => void }) {
-  const { color, Icon } = TONE[toast.type];
   return (
-    <div
-      role="status"
+    <Alert
+      variant={TYPE_TO_VARIANT[toast.type]}
+      onClose={onClose}
       aria-live="polite"
-      className="pointer-events-auto flex w-[min(380px,calc(100vw-32px))] items-start gap-3 rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] p-3 shadow-xl"
-      style={{ borderLeftColor: color, borderLeftWidth: 3 }}
+      className="pointer-events-auto w-[min(380px,calc(100vw-32px))] items-center shadow-xl backdrop-blur-sm"
     >
-      <Icon size={18} style={{ color }} className="mt-0.5 shrink-0" />
-      <p className="flex-1 text-sm leading-5 text-[var(--text-primary)]">{toast.message}</p>
-      <button
-        type="button"
-        onClick={onClose}
-        aria-label="Dismiss"
-        className="shrink-0 rounded-md p-0.5 text-[var(--text-muted)] hover:bg-[var(--bg-elevated)]"
-      >
-        <X size={15} />
-      </button>
-    </div>
+      <div className="min-w-0">
+        <AlertTitle>{TYPE_TO_TITLE[toast.type]}</AlertTitle>
+        <AlertDescription className="text-xs">{toast.message}</AlertDescription>
+      </div>
+    </Alert>
   );
 }

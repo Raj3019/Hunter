@@ -1,23 +1,26 @@
 import {
-  Bell,
   BriefcaseBusiness,
-  CheckCircle,
+  CheckSquare,
   Gauge,
   KanbanSquare,
   Link2,
-  LoaderCircle,
   LogOut,
   Menu,
   RefreshCw,
   Search,
   Settings,
-  User,
+  Sparkles,
   X,
 } from "lucide-react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { type FormEvent, useState } from "react";
 import { BrandMark } from "./BrandMark";
+import { Spinner } from "./ui/spinner";
 import { useToast } from "./Toast";
+import { FamilyButton } from "./ui/family-button";
+import { Avatar, AvatarFallback } from "./ui/avatar";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "./ui/hover-card";
+import { currentUserEmail, currentUserName, userInitials } from "@/lib/session";
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -53,7 +56,6 @@ function formatLastSync(value: string) {
 export function AppShell({
   children,
   metrics,
-  portalIssues = [],
   onSync,
   onSearch,
   searchLoading = false,
@@ -61,8 +63,6 @@ export function AppShell({
   lastAutoSyncedAt = "",
 }: AppShellProps) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const [profileOpen, setProfileOpen] = useState(false);
-  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [syncState, setSyncState] = useState<"idle" | "syncing" | "done">("idle");
   const [searchQuery, setSearchQuery] = useState("");
   const navigate = useNavigate();
@@ -73,6 +73,9 @@ export function AppShell({
   const syncLabel = syncState === "done" ? "Updated" : autoSyncState === "paused" ? "Paused" : syncBusy ? "Syncing" : "Auto sync";
   const syncTimeLabel = formatLastSync(lastAutoSyncedAt);
   const syncTitle = `Auto sync refreshes saved matches and Tracker status. It never searches, applies, or opens portals.${syncTimeLabel ? ` Last refresh: ${syncTimeLabel}.` : ""} Click to refresh now.`;
+  const userEmail = currentUserEmail();
+  const userName = currentUserName();
+  const initials = userInitials();
 
   const runSync = async () => {
     if (syncState === "syncing") return;
@@ -98,215 +101,172 @@ export function AppShell({
     await onSearch?.(query);
   };
 
-  const closeMenus = () => {
-    setProfileOpen(false);
-    setNotificationsOpen(false);
-    setMobileNavOpen(false);
-  };
+  const navLinkClass = (isActive: boolean) =>
+    `w-full py-2.5 px-3.5 rounded-xl flex items-center gap-2.5 text-xs font-bold transition-all ${
+      isActive
+        ? "bg-brand-pine text-white shadow-sm hover:bg-brand-pine/90"
+        : "text-zinc-550 hover:text-brand-pine hover:bg-brand-chalk/80"
+    }`;
 
   return (
-    <div className="min-h-screen bg-[var(--bg-base)] text-[var(--text-primary)]">
-      <header className="sticky top-0 z-30 border-b border-[var(--border-default)] bg-[var(--bg-surface)]/95 backdrop-blur">
-        <div className="air-container flex min-h-16 flex-wrap items-center gap-3 py-3">
-          <button type="button" onClick={() => navigate("/dashboard")} className="mr-1 shrink-0 text-left">
-            <BrandMark />
-          </button>
+    <div className="flex min-h-screen flex-col bg-brand-linen font-sans text-brand-pine antialiased md:h-screen md:flex-row md:overflow-hidden">
+      {/* Sidebar nav rail */}
+      <aside className="relative z-30 flex w-full shrink-0 flex-col justify-between border-r border-brand-border bg-white md:w-64">
+        <div>
+          <div className="flex h-16 items-center justify-between border-b border-brand-border/60 px-6">
+            <button type="button" onClick={() => navigate("/dashboard")} className="text-left">
+              <BrandMark eyebrow="Job Console" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setMobileNavOpen((open) => !open)}
+              aria-label="Toggle navigation"
+              className="text-zinc-500 hover:text-brand-pine md:hidden"
+            >
+              {mobileNavOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+            </button>
+          </div>
 
-          <nav className="hidden items-center gap-1 lg:flex">
+          <nav className={`space-y-1.5 p-4 md:block ${mobileNavOpen ? "block" : "hidden"}`}>
             {navItems.map((item) => (
               <NavLink
                 key={item.path}
                 to={item.path}
-                className={({ isActive }) =>
-                  `inline-flex h-9 items-center gap-2 rounded-md px-3 text-sm font-medium transition ${
-                    isActive
-                      ? "bg-[var(--bg-elevated)] text-[var(--text-primary)]"
-                      : "text-[var(--text-muted)] hover:bg-[var(--bg-elevated)] hover:text-[var(--text-primary)]"
-                  }`
-                }
+                onClick={() => setMobileNavOpen(false)}
+                className={({ isActive }) => navLinkClass(isActive)}
               >
-                <item.icon size={15} />
+                <item.icon className="h-4 w-4" />
                 {item.label}
               </NavLink>
             ))}
           </nav>
+        </div>
 
+        <div className={`border-t border-zinc-100 p-4 md:block ${mobileNavOpen ? "block" : "hidden"}`}>
+          <HoverCard openDelay={120} closeDelay={120}>
+            <HoverCardTrigger asChild>
+              <button type="button" className="mb-3 flex w-full items-center gap-3 rounded-2xl border border-zinc-200/60 bg-brand-linen p-3 text-left transition hover:border-brand-pine/30 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-clay/30">
+                <Avatar className="h-8 w-8 rounded-xl">
+                  <AvatarFallback className="rounded-xl bg-zinc-950 font-sans text-xs font-bold text-white">{initials}</AvatarFallback>
+                </Avatar>
+                <div className="min-w-0 flex-1">
+                  <h4 className="truncate text-xs font-extrabold text-brand-pine">{userName || "Hunter workspace"}</h4>
+                  <p className="truncate font-mono text-[10px] text-zinc-450">{userEmail || "Local session"}</p>
+                </div>
+              </button>
+            </HoverCardTrigger>
+            <HoverCardContent side="right" align="end" sideOffset={12} className="w-72 rounded-2xl border-brand-border bg-white p-4 shadow-xl">
+              <div className="flex items-start gap-3">
+                <Avatar className="h-11 w-11 rounded-xl">
+                  <AvatarFallback className="rounded-xl bg-zinc-950 font-sans text-sm font-bold text-white">{initials}</AvatarFallback>
+                </Avatar>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-extrabold text-brand-pine">{userName || "Hunter workspace"}</p>
+                  <p className="truncate font-mono text-[11px] text-zinc-450">{userEmail || "Local session"}</p>
+                  <p className="mt-1 text-xs font-medium text-zinc-500">Active Hunter session</p>
+                </div>
+              </div>
+
+              <div className="mt-4 grid grid-cols-3 gap-2">
+                <div className="rounded-xl border border-brand-border bg-brand-chalk p-2 text-center">
+                  <p className="font-mono text-[10px] font-black text-brand-pine">{metrics.matches}</p>
+                  <p className="mt-0.5 text-[10px] font-bold text-zinc-500">Matches</p>
+                </div>
+                <div className="rounded-xl border border-brand-border bg-brand-chalk p-2 text-center">
+                  <p className="font-mono text-[10px] font-black text-brand-pine">{metrics.approved}</p>
+                  <p className="mt-0.5 text-[10px] font-bold text-zinc-500">Ready</p>
+                </div>
+                <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-2 text-center">
+                  <p className="font-mono text-[10px] font-black text-emerald-700">{metrics.applied}</p>
+                  <p className="mt-0.5 text-[10px] font-bold text-emerald-700">Applied</p>
+                </div>
+              </div>
+
+            </HoverCardContent>
+          </HoverCard>
           <button
             type="button"
-            onClick={() => setMobileNavOpen(true)}
-            aria-label="Open navigation"
-            title="Open navigation"
-            className="ml-auto inline-flex h-9 w-9 items-center justify-center rounded-md border border-[var(--border-default)] bg-[var(--bg-surface)] lg:hidden"
+            onClick={signOut}
+            className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-xs font-bold text-rose-500 transition-colors hover:bg-rose-50 hover:text-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-200"
           >
-            <Menu size={16} />
+            <LogOut className="h-4 w-4" /> Log Out Session
           </button>
+        </div>
+      </aside>
+
+      {/* Content frame */}
+      <main className="relative flex min-w-0 flex-1 flex-col md:min-h-0">
+        <header className="grid min-h-16 shrink-0 grid-cols-1 items-center gap-3 border-b border-brand-border/60 bg-white px-4 py-3 sm:px-6 lg:h-16 lg:grid-cols-[minmax(0,1fr)_minmax(340px,560px)_minmax(0,1fr)] lg:py-0">
+          <div className="hidden min-w-0 items-center gap-2.5 lg:flex">
+            <span className="font-mono text-[10px] font-bold uppercase tracking-widest text-zinc-400">Role profile:</span>
+            <span className="inline-flex items-center gap-1 rounded border border-brand-border bg-brand-chalk px-2.5 py-1 font-mono text-[10px] font-bold text-brand-pine">
+              <CheckSquare className="h-3 w-3 text-brand-clay" /> {metrics.matches} matches
+            </span>
+            {syncTimeLabel && (
+              <span className="font-mono text-[10px] text-zinc-400" title="When Hunter last refreshed your matches and tracker">
+                &middot; Synced {syncTimeLabel}
+              </span>
+            )}
+          </div>
 
           {showGlobalSearch ? (
-            <form onSubmit={runSearch} role="search" className="relative order-last w-full flex-1 lg:order-none lg:ml-auto lg:max-w-lg" aria-busy={searchLoading}>
+            <form onSubmit={runSearch} role="search" className="relative w-full lg:col-start-2 lg:row-start-1 lg:justify-self-center" aria-busy={searchLoading}>
               {searchLoading ? (
-                <LoaderCircle size={16} className="absolute left-3 top-1/2 -translate-y-1/2 animate-spin text-[var(--accent-primary)]" />
+                <Spinner className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-clay" />
               ) : (
-                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" />
+                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
               )}
               <input
                 value={searchQuery}
                 onChange={(event) => setSearchQuery(event.target.value)}
                 disabled={searchLoading}
-                className={`terminal-field h-10 w-full rounded-lg pl-9 pr-28 text-sm shadow-sm disabled:cursor-wait disabled:opacity-90 ${searchLoading ? "border-[var(--accent-primary)] bg-[var(--bg-elevated)]" : ""}`}
+                className={`h-10 w-full rounded-xl border bg-white pl-9 pr-24 text-sm shadow-sm outline-none transition focus:border-brand-pine disabled:cursor-wait disabled:opacity-90 ${
+                  searchLoading ? "border-brand-clay bg-brand-chalk" : "border-brand-border"
+                }`}
                 placeholder="Search jobs or use profile"
               />
               <button
                 type="submit"
                 disabled={searchLoading}
-                className="absolute right-1 top-1/2 inline-flex h-8 -translate-y-1/2 items-center gap-1 rounded-md bg-[var(--accent-primary)] px-3 text-xs font-semibold text-white transition hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:bg-slate-300"
+                className="absolute right-1 top-1/2 inline-flex h-8 -translate-y-1/2 items-center gap-1 rounded-lg bg-brand-pine px-3 text-xs font-semibold text-white transition hover:bg-brand-pine-deep disabled:cursor-not-allowed disabled:opacity-55"
               >
-                {searchLoading && <LoaderCircle size={12} className="animate-spin" />}
+                {searchLoading ? <Spinner className="size-3" /> : <Sparkles size={12} />}
                 {searchLoading ? "Finding" : searchQuery.trim() ? "Search" : "Find"}
               </button>
             </form>
           ) : (
-            <div className="hidden flex-1 lg:block" />
+            <div className="hidden lg:col-start-2 lg:row-start-1 lg:block" />
           )}
 
-          <button
-            type="button"
-            onClick={() => void runSync()}
-            title={syncTitle}
-            aria-label={syncTitle}
-            className={`air-button h-9 border bg-[var(--bg-surface)] px-3 text-[var(--text-primary)] hover:border-[var(--accent-primary)] ${
-              syncBusy ? "border-[var(--accent-primary)] text-[var(--accent-primary)]" : "border-[var(--border-default)]"
-            }`}
-          >
-            <RefreshCw size={15} className={syncBusy ? "animate-spin" : ""} />
-            <span className="hidden sm:inline">{syncLabel}</span>
-          </button>
+          <div className="flex items-center gap-2 justify-self-end lg:col-start-3 lg:row-start-1">
+            <button
+              type="button"
+              onClick={() => void runSync()}
+              title={syncTitle}
+              aria-label={syncTitle}
+              className={`air-button h-9 rounded-xl border bg-white px-3 text-brand-pine transition hover:border-brand-pine ${
+                syncBusy ? "border-brand-clay text-brand-clay" : "border-brand-border"
+              }`}
+            >
+              {syncBusy ? <Spinner className="size-[15px]" /> : <RefreshCw size={15} />}
+              <span className="hidden sm:inline">{syncLabel}</span>
+            </button>
+          </div>
+        </header>
 
-          <button
-            type="button"
-            onClick={() => navigate("/jobs")}
-            className="air-button h-9 border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 text-[var(--text-primary)] hover:border-[var(--accent-primary)]"
-          >
-            Ready
-            <span className="rounded-full bg-[var(--accent-primary)] px-2 py-0.5 text-xs font-semibold text-white">{metrics.approved}</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => navigate("/tracker?status=applied")}
-            className="air-button h-9 border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 text-[var(--text-primary)] hover:border-[var(--state-success)]"
-          >
-            <CheckCircle size={15} style={{ color: "var(--state-success)" }} />
-            <span className="hidden sm:inline">Applied</span>
-            <span className="rounded-full bg-[var(--state-success)] px-2 py-0.5 text-xs font-semibold text-white">{metrics.applied}</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              setNotificationsOpen((open) => !open);
-              setProfileOpen(false);
-            }}
-            aria-label="Notifications"
-            title="Notifications"
-            className="relative inline-flex h-9 w-9 items-center justify-center rounded-md border border-[var(--border-default)] bg-[var(--bg-surface)]"
-          >
-            <Bell size={16} />
-            {(metrics.blocked > 0 || portalIssues.length > 0) && <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-[var(--state-warning)]" />}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              setProfileOpen((open) => !open);
-              setNotificationsOpen(false);
-            }}
-            aria-label="Profile"
-            title="Profile"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[var(--border-default)] bg-[var(--bg-elevated)] text-sm font-semibold"
-          >
-            AK
-          </button>
-
-          {(notificationsOpen || profileOpen) && (
-            <button type="button" aria-label="Close menu" className="fixed inset-0 z-30 cursor-default bg-transparent" onClick={closeMenus} />
-          )}
-
-          {notificationsOpen && (
-            <div className="absolute right-20 top-[calc(100%+8px)] z-40 w-[min(380px,calc(100vw-32px))] rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] p-3 shadow-xl">
-              <p className="text-sm font-semibold">Notifications</p>
-              <div className="mt-3 space-y-1 text-sm">
-                {portalIssues.map((issue) => (
-                  <button key={issue.portal} type="button" onClick={() => { navigate(`/portals?connect=${issue.portal}`); closeMenus(); }} className="block w-full rounded-md p-3 text-left hover:bg-[var(--bg-elevated)]">
-                    <span className="font-medium">{issue.name} needs re-login</span>
-                    <span className="mt-1 block text-xs text-[var(--text-muted)]">{issue.message}</span>
-                  </button>
-                ))}
-                <button type="button" onClick={() => { navigate("/jobs"); closeMenus(); }} className="block w-full rounded-md p-3 text-left hover:bg-[var(--bg-elevated)]">
-                  <span className="font-medium">{metrics.matches} matches ready</span>
-                  <span className="mt-1 block text-xs text-[var(--text-muted)]">Review before opening the portal.</span>
-                </button>
-              </div>
-            </div>
-          )}
-
-          {profileOpen && (
-            <div className="absolute right-6 top-[calc(100%+8px)] z-40 w-60 rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] p-2 shadow-xl">
-              <button type="button" onClick={() => { navigate("/onboarding"); closeMenus(); }} className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-[var(--bg-elevated)]">
-                <User size={15} />
-                Onboarding
-              </button>
-              <button type="button" onClick={() => { navigate("/settings"); closeMenus(); }} className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-[var(--bg-elevated)]">
-                <Settings size={15} />
-                Settings
-              </button>
-              <button type="button" onClick={signOut} className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-[var(--state-error)] hover:bg-[var(--bg-elevated)]">
-                <LogOut size={15} />
-                Sign out
-              </button>
-            </div>
-          )}
+        <div className="flex-1 overflow-y-auto md:min-h-0">
+          <div className="mx-auto w-full max-w-[1536px] p-4 sm:p-6 lg:p-8">{children}</div>
         </div>
-      </header>
+      </main>
 
-      <main className="air-container py-6">{children}</main>
-
-      {mobileNavOpen && (
-        <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true">
-          <button type="button" aria-label="Close navigation backdrop" className="absolute inset-0 bg-slate-900/30" onClick={() => setMobileNavOpen(false)} />
-          <aside className="relative h-full w-[min(320px,86vw)] border-r border-[var(--border-default)] bg-[var(--bg-surface)] shadow-xl">
-            <div className="flex h-16 items-center justify-between border-b border-[var(--border-default)] px-4">
-              <BrandMark />
-              <button type="button" aria-label="Close navigation" title="Close navigation" onClick={() => setMobileNavOpen(false)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-[var(--border-default)]">
-                <X size={16} />
-              </button>
-            </div>
-            <nav className="space-y-1 p-3">
-              {navItems.map((item) => (
-                <NavLink
-                  key={item.path}
-                  to={item.path}
-                  onClick={() => setMobileNavOpen(false)}
-                  className={({ isActive }) =>
-                    `flex items-center gap-3 rounded-md px-3 py-3 text-sm ${
-                      isActive ? "bg-[var(--bg-elevated)] text-[var(--text-primary)]" : "text-[var(--text-muted)] hover:bg-[var(--bg-elevated)] hover:text-[var(--text-primary)]"
-                    }`
-                  }
-                >
-                  <item.icon size={16} />
-                  {item.label}
-                </NavLink>
-              ))}
-            </nav>
-            <div className="mx-3 mt-3 rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] p-3">
-              <div className="flex items-center gap-2 text-sm font-medium">
-                <CheckCircle size={16} style={{ color: "var(--state-success)" }} />
-                Apply checks
-              </div>
-              <p className="mt-2 text-xs text-[var(--text-muted)]">The app curates jobs and tracks portal submissions after you confirm them.</p>
-            </div>
-          </aside>
-        </div>
-      )}
+      <FamilyButton
+        actions={[
+          { icon: <Search size={16} />, label: "Search jobs", onClick: () => navigate("/jobs") },
+          { icon: <RefreshCw size={16} />, label: "Sync now", onClick: () => void runSync() },
+          { icon: <KanbanSquare size={16} />, label: "Open Tracker", onClick: () => navigate("/tracker") },
+          { icon: <Link2 size={16} />, label: "Manage portals", onClick: () => navigate("/portals") },
+        ]}
+      />
     </div>
   );
 }

@@ -5,6 +5,8 @@ from pydantic import BaseModel
 
 from core.auth import get_current_user_id
 from core.database import NULL_RESULT, get_db
+from portals.career_portals import is_career_portal
+from services.career_apply_sync import reconcile_career_applications
 from services.foundit_apply_sync import reconcile_foundit_applications
 from services.naukri_apply_sync import reconcile_naukri_applications
 
@@ -68,6 +70,18 @@ async def sync_foundit_applications(user_id: str = Depends(get_current_user_id))
     """Read-only: detect Foundit applies and advance matching pending tasks."""
     db = get_db()
     return await reconcile_foundit_applications(db, user_id)
+
+
+@router.post("/sync-career/{portal_key}")
+async def sync_career_applications(
+    portal_key: str,
+    user_id: str = Depends(get_current_user_id),
+):
+    """Read-only: detect company career-portal (Wipro/HCLTech/Infosys) applies and advance tasks."""
+    if not is_career_portal(portal_key):
+        raise HTTPException(status_code=404, detail="Unknown career portal.")
+    db = get_db()
+    return await reconcile_career_applications(db, user_id, portal_key)
 
 
 @router.patch("/{app_id}")

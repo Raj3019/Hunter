@@ -66,8 +66,12 @@ Thumbs.db
 
 # docs
 
-
 /ui-flow-variants
+/ui-prototype
 /ui-variants
+/docs
+/_shots
+_shot.py
 .agents
+.codex-tmp
 .claude

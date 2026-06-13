@@ -102,12 +102,17 @@ Scoring rules:
 - 0-39: Poor match - significant gaps
 - recommend_apply: true if score >= 60
 
+- merits: 2-4 short phrases (max 8 words each) on what makes this candidate a strong fit, grounded ONLY in the resume evidence.
+- demerits: 2-4 short phrases (max 8 words each) on the real gaps or risks for this role.
+
 Required JSON format:
 {{
   "score": 0,
   "matched_skills": [],
   "missing_skills": [],
   "reasons": [],
+  "merits": [],
+  "demerits": [],
   "recommend_apply": false
 }}
 
@@ -138,7 +143,45 @@ JOB DESCRIPTION (excerpt):
     result.setdefault("matched_skills", [])
     result.setdefault("missing_skills", [])
     result.setdefault("reasons", [])
+    result.setdefault("merits", [])
+    result.setdefault("demerits", [])
+    # If the model omitted merits/gaps, derive sensible ones from its own output.
+    if not result["merits"] or not result["demerits"]:
+        derived = _derive_breakdown(
+            result["matched_skills"],
+            result["missing_skills"],
+            result["score"],
+            role_overlap=_role_match_ratio(resume, job) > 0,
+        )
+        if not result["merits"]:
+            result["merits"] = derived["merits"]
+        if not result["demerits"]:
+            result["demerits"] = derived["demerits"]
     return result
+
+
+def _derive_breakdown(matched: list, missing: list, score: int, role_overlap: bool) -> dict:
+    """Build honest merits/gaps from matched/missing skills + score (no fabrication)."""
+    merits: list[str] = []
+    if matched:
+        merits.append(f"Has {', '.join(str(s) for s in matched[:3])}")
+    if role_overlap:
+        merits.append("Title and profile align with this role")
+    if score >= 60:
+        merits.append("Above your recommend threshold (≥60%)")
+    if not merits:
+        merits.append("Some transferable experience")
+
+    demerits: list[str] = []
+    if missing:
+        demerits.append(f"Missing {', '.join(str(s) for s in missing[:3])}")
+    if not matched:
+        demerits.append("Few directly matching skills found")
+    if score < 60:
+        demerits.append("Below your recommend threshold")
+    if not demerits:
+        demerits.append("No major gaps detected")
+    return {"merits": merits, "demerits": demerits}
 
 
 def _keyword_score_job(resume: dict, job: dict, fallback_reason: str) -> dict:
@@ -201,11 +244,14 @@ def _keyword_score_job(resume: dict, job: dict, fallback_reason: str) -> dict:
     if role_ratio > 0:
         reasons.append("Job title or description overlaps with the candidate role/profile.")
 
+    breakdown = _derive_breakdown(matched, missing, score, role_overlap=role_ratio > 0)
     return {
         "score": score,
         "matched_skills": matched,
         "missing_skills": missing,
         "reasons": reasons,
+        "merits": breakdown["merits"],
+        "demerits": breakdown["demerits"],
         "recommend_apply": score >= 60,
     }
 

@@ -37,9 +37,11 @@ export interface JobMatch {
   status: JobStatus;
   matchedSkills: string[];
   missingSkills: string[];
+  scoreBreakdown?: { merits: string[]; demerits: string[] };
   note: string;
   jdSummary: string;
   jdFullDescription?: string;
+  companyLogoUrl?: string;
   tailoredResumeApproved: boolean;
   tailoredResumeVersion: string;
   applyMethod?: string;

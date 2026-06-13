@@ -1,0 +1,17 @@
+import { Progress } from "src/components/ui/progress"
+
+export function Pattern() {
+  return (
+    <div className="mx-auto w-full max-w-xs space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-medium">
+          Upload progress
+        </span>
+        <span className="text-muted-foreground text-sm">
+          56%
+        </span>
+      </div>
+      <Progress value={56} />
+    </div>
+  )
+}

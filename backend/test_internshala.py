@@ -36,7 +36,7 @@ async def main():
         if "captcha" not in str(exc).lower():
             raise
         print("[SKIP] Requests login blocked by Internshala captcha.")
-        print("       Run: python -m portals.internshala.setup_browser_session")
+        print("       (Server-side login is reCAPTCHA-gated; users log in via the manual link.)")
         print("       Search endpoints are public, so continuing search checks.")
 
     jc = InternshalaJobClient(auth)

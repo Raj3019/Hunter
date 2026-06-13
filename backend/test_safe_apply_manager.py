@@ -37,7 +37,7 @@ def _sample_job() -> Job:
 
 
 def test_portal_limits_defined():
-    for portal in ["naukri", "foundit", "linkedin", "workday", "internshala"]:
+    for portal in ["naukri", "foundit", "workday", "internshala"]:
         assert portal in PORTAL_LIMITS, f"Missing limit for {portal}"
         assert portal in PORTAL_DELAYS, f"Missing delay for {portal}"
         assert PORTAL_LIMITS[portal] > 0
@@ -120,7 +120,7 @@ def test_can_apply_inside_hours_below_limit():
 
 def test_delay_is_in_range():
     manager = _manager()
-    for portal in ["naukri", "linkedin", "workday"]:
+    for portal in ["naukri", "foundit", "workday"]:
         min_d, max_d = PORTAL_DELAYS[portal]
         with patch("time.sleep"):
             delay = manager.safe_delay(portal)
@@ -132,7 +132,7 @@ def test_today_stats_structure():
     manager = _manager()
     with patch.object(manager, "_get_today_count", return_value=0):
         stats = manager.get_today_stats("test_user_id")
-    for portal in ["naukri", "linkedin"]:
+    for portal in ["naukri", "foundit"]:
         assert portal in stats
         assert "applied" in stats[portal]
         assert "limit" in stats[portal]

@@ -61,7 +61,7 @@ MVP output format is `.docx` because Hunter already depends on `python-docx` and
 
 - **Current status: local/dev only** (server runs on the owner's own machine, effectively single user). Multi-user production deployment is intentionally deferred.
 - The durable Naukri credential login (encrypted password in `portal_tokens`, browserless API re-login via `get_valid_naukri_auth`) is production-compatible and behaves the same on a server.
-- Before deploying for real users, work through **`docs/context/production-readiness.md`** — the deferred checklist. Headlines: gate the `headless=False` browser-login flow to dev only (credential form is the only server-safe Naukri connect), run APScheduler in exactly one process, plan for Naukri's single-IP anti-bot limits, and lock down `ENCRYPTION_KEY` + Supabase RLS + CORS/HTTPS.
+- Before deploying for real users, work through **`docs/context/production-readiness.md`** — the deferred checklist. Headlines: run APScheduler in exactly one process, plan for Naukri's single-IP anti-bot limits, and lock down `ENCRYPTION_KEY` + Supabase RLS + CORS/HTTPS. (The local-only `headless=False` browser-login flows — Naukri guided connect + Internshala browser-connect — have already been removed; the credential form is the only Naukri connect path.)
 
 ## Auth and Access Model
 
@@ -70,9 +70,9 @@ MVP output format is `.docx` because Hunter already depends on `python-docx` and
 - Every database table has a `user_id` column referencing `public.profiles(id)`. All queries are scoped to the authenticated user's `user_id`.
 - Portal tokens such as Foundit Bearer tokens are stored per user in `portal_tokens` table. They never appear in any API response after being saved.
 - Naukri keyword search uses the public `/jobapi/v3/search` endpoint and needs no login. A Naukri login is optional and only powers personalized recommendations and authed apply.
-- Naukri durable login uses encrypted credential re-login, not a saved token or browser profile. Naukri's `nauk_at` Bearer token is a 1-hour JWT and Naukri logs a browser profile out once it lapses (purging the long-lived `nauk_rt` refresh cookie), so a saved token/profile cannot stay valid for days. Hunter stores the user's Naukri credentials encrypted (Fernet) and silently re-logs in to mint a fresh token when the cached one expires. See `03-naukri-portal.md` → "Durable Authentication". The guided browser-login flow remains as an advanced fallback.
+- Naukri durable login uses encrypted credential re-login, not a saved token or browser profile. Naukri's `nauk_at` Bearer token is a 1-hour JWT and Naukri logs a browser profile out once it lapses (purging the long-lived `nauk_rt` refresh cookie), so a saved token/profile cannot stay valid for days. Hunter stores the user's Naukri credentials encrypted (Fernet) and silently re-logs in to mint a fresh token when the cached one expires. See `03-naukri-portal.md` → "Durable Authentication". The guided browser-login flow has been **removed** — the credential form is the only Naukri connect path.
 - Company portal passwords are encrypted with AES-256 (Fernet) before insert. Decrypted only at the moment of Playwright `page.fill()`. The plaintext is deleted from memory immediately after use (`del password`).
-- LinkedIn and Playwright-based portals authenticate via persistent Chrome profile — no password stored. User performs manual login once; the session cookie is reused.
+- Internshala uses a **manual login link** — the user logs in in their own browser; Hunter stores no server-side Internshala session (the old persistent-Chrome-profile browser-connect flow was removed). The dormant Workday/Taleo/company apply handlers would use a persistent Chrome profile if ever enabled.
 
 ## Job Discovery Modes
 
@@ -86,6 +86,21 @@ Manual search and scheduler are allowed to create the same type of `job_matches`
 
 - **MVP Open portal**: User-reviewed action from a curated match. Hunter records a portal-pending application task, stores the original source URL and resume artifact metadata, opens the portal page, and waits for the user to confirm the outcome in Tracker. It does not submit forms unattended.
 - **Future verified auto-submit**: Dormant code path only. It may be re-enabled later for explicitly verified official/native flows and must use SafeApplyManager throttling, per-portal caps, score threshold, safe window, and audit logging.
+
+## Applied-Status Auto-Detect
+
+Read-only reconcilers advance Hunter's `external_pending` portal-open tasks to `applied` / `viewed` / `interview` by reading the portal's own applied history — so the user usually does not have to tap "I applied" manually. Each `reconcile_*_applications(db, user_id)` matches the portal's applied-list job ids against the stored `jobs.job_id` of the user's pending tasks; it never submits anything. Exposed as `POST /api/applications/sync-{naukri,foundit,internshala}` and fired together (throttled) from the frontend `syncAppliedStatus` (on tracker open, tab focus, and interval), with a success toast when anything flips.
+
+**Feasibility rule — auto-detect needs one account = one unified applied list (an aggregator job board).** That splits the portals into:
+
+| Mechanism | Portals | Notes |
+|---|---|---|
+| **API** (fast, no browser) | Naukri, Foundit | Reverse-engineered JSON history APIs. Naukri = encrypted-credential re-login; Foundit = base64-decoded JWT + `MSUID`/`MSSOAT` cookies + `x-source-site-context` header. |
+| **Browser** (Playwright, heavy) | Internshala | Login is reCAPTCHA-gated → no API. Scrapes the persistent Chrome profile's "My Applications"; reconcile throttled server-side (`COOLDOWN_SECONDS=600`). LinkedIn could work the same way (unified "My Jobs → Applied") but isn't built. |
+| **Company career portals** (headless login, per-tenant) | Wipro, HCLTech, Infosys, Capgemini | Single-employer sites where the candidate has a clean email+password login and a readable "My Applications" list. Dispatched by `portals/career_portals.py`: **SuccessFactors** (`portals/successfactors/` — Wipro `wiprolimitP2`, HCLTech `HCLPRD` on `career55.sapsf.eu`; Capgemini `capgemitecP3` on `career5.successfactors.eu`) logs in headless and reads the `getCandidateProfileVO` DWR response; **Infosys** (`portals/infosys/` — `career.infosys.com`) logs in via Keycloak email+password (no OTP/reCAPTCHA — verified live) and reads the `getCandidateApplications` REST JSON. Shared reconcile `services/career_apply_sync.py` throttled server-side (`COOLDOWN_SECONDS=300`), matches pending tasks by normalized job title. Adding an employer is a registry entry (+ tenant config for a new SF site, or a new platform branch). |
+| **Manual-confirm only** | Workday, Taleo, TCS, Cognizant, Accenture, any other company/ATS site | Logins can't be replayed server-side or there's no central list: TCS (image-CAPTCHA + email OTP) and Cognizant (passwordless magic-link + Google SSO + reCAPTCHA) verified live; others scatter applications across separate per-company systems. The one-tap "I applied / Could not apply" confirm is the correct design. |
+
+Note also (per `naukri-solutions.md`): even on an API portal, **external/company-site applies** (Naukri `companyApplyJob:True`) submit on the company's own ATS and never enter the portal's history, so they also fall to manual-confirm.
 
 ## Invariants
 

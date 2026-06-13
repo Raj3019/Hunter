@@ -9,7 +9,7 @@ from ai.job_scorer import score_job
 
 logger = logging.getLogger(__name__)
 
-SUPPORTED_MANUAL_PORTALS = {"naukri", "foundit"}
+SUPPORTED_MANUAL_PORTALS = {"naukri", "foundit", "internshala"}
 DEFAULT_QUERY = "Software Developer"
 DEFAULT_LOCATION = "Bangalore"
 DEFAULT_MIN_SCORE = 60
@@ -189,6 +189,42 @@ async def search_portals(
                     warnings=warnings,
                 )
             )
+        elif portal == "internshala":
+            jobs.extend(
+                await _search_internshala(
+                    query=query,
+                    locations=locations,
+                    page=page,
+                    warnings=warnings,
+                )
+            )
+    return jobs
+
+
+async def _search_internshala(
+    *,
+    query: str,
+    locations: list[str],
+    page: int,
+    warnings: list[str],
+) -> list:
+    from portals.internshala.auth import InternshalaAuthClient
+    from portals.internshala.jobs import InternshalaJobClient
+
+    # Internshala's public search filters via SEO paths (no login). Its ajax
+    # fragment returns ~40 page-1 jobs with no reliable pagination, so it only
+    # contributes on page 1 (like Naukri recommendations).
+    if page > 1:
+        return []
+    client = InternshalaJobClient(InternshalaAuthClient())
+    jobs = []
+    for location in (locations or [""]):
+        try:
+            jobs.extend(await asyncio.to_thread(client.search_jobs, query, location))
+        except Exception as exc:
+            warning = f"Internshala search failed for {query} / {location or 'any location'}: {_safe_error(exc)}"
+            warnings.append(warning)
+            logger.warning(warning)
     return jobs
 
 
@@ -431,6 +467,10 @@ def transient_match(
         "match_reasons": score_result.get("reasons", []),
         "matched_skills": score_result.get("matched_skills", []),
         "missing_skills": score_result.get("missing_skills", []),
+        "score_breakdown": {
+            "merits": score_result.get("merits", []),
+            "demerits": score_result.get("demerits", []),
+        },
         "status": "pending",
         "search_source": source,
         "search_query": search_query,
@@ -507,6 +547,10 @@ def upsert_match(
         "search_location": search_location,
         "search_run_id": search_run_id or None,
         "last_scored_at": _now(),
+        "score_breakdown": {
+            "merits": score_result.get("merits", []),
+            "demerits": score_result.get("demerits", []),
+        },
     }
 
     try:
@@ -569,7 +613,7 @@ def _normalize_request(
     normalized_locations = _string_list(locations) or _string_list(prefs.get("locations")) or [DEFAULT_LOCATION]
     normalized_work_type = [item.lower() for item in _string_list(prefs.get("work_type"))]
     normalized_avoid_companies = [item.lower() for item in _string_list(prefs.get("avoid_companies"))]
-    normalized_portals = [item.lower() for item in (_string_list(portals) or ["naukri", "foundit"])]
+    normalized_portals = [item.lower() for item in (_string_list(portals) or ["naukri", "foundit", "internshala"])]
     unsupported = [item for item in normalized_portals if item not in SUPPORTED_MANUAL_PORTALS]
     if unsupported:
         raise DiscoveryError(400, f"Manual search currently supports: {', '.join(sorted(SUPPORTED_MANUAL_PORTALS))}.")
