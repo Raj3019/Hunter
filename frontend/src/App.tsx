@@ -10,6 +10,7 @@ import { PageLoadingContext, type PageLoadingState } from "./components/PageLoad
 import { useToast } from "./components/Toast";
 import { Home } from "./pages/Home";
 import { Auth } from "./pages/Auth";
+import { Terms } from "./pages/Terms";
 import { Onboarding } from "./pages/Onboarding";
 import { Dashboard } from "./pages/Dashboard";
 import { Jobs } from "./pages/Jobs";
@@ -681,6 +682,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/" element={<Home />} />
+      <Route path="/terms" element={<Terms />} />
       <Route path="/auth" element={<Auth />} />
       <Route path="/login" element={<Navigate to="/auth" replace />} />
       <Route

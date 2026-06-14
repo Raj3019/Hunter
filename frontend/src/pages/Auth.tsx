@@ -18,6 +18,7 @@ export function Auth() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [agreedTerms, setAgreedTerms] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -55,6 +56,10 @@ export function Auth() {
       }
       if (isRegister && password !== confirmPassword) {
         setError("Passwords do not match.");
+        return;
+      }
+      if (isRegister && !agreedTerms) {
+        setError("Please accept the Terms & Conditions to create your account.");
         return;
       }
 
@@ -291,10 +296,28 @@ export function Auth() {
                 </div>
               )}
 
+              {isRegister && (
+                <label className="flex cursor-pointer items-start gap-2 text-[11px] font-medium leading-relaxed text-zinc-500">
+                  <input
+                    type="checkbox"
+                    checked={agreedTerms}
+                    onChange={(e) => { setAgreedTerms(e.target.checked); if (error) setError(""); }}
+                    className="mt-0.5 h-3.5 w-3.5 shrink-0 cursor-pointer rounded border-zinc-300 text-zinc-950 accent-zinc-950"
+                  />
+                  <span>
+                    I agree to the{" "}
+                    <a href="/terms" target="_blank" rel="noopener noreferrer" className="font-bold text-zinc-950 underline underline-offset-2 hover:text-brand-clay">
+                      Terms &amp; Conditions
+                    </a>
+                    , including that Hunter is not responsible if a job-portal account is banned or blocked.
+                  </span>
+                </label>
+              )}
+
               <button
                 type="submit"
-                disabled={loading}
-                className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-zinc-950 bg-zinc-950 py-2.5 text-xs font-bold text-white shadow-sm transition-all hover:bg-zinc-900 disabled:opacity-75"
+                disabled={loading || (isRegister && !agreedTerms)}
+                className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-zinc-950 bg-zinc-950 py-2.5 text-xs font-bold text-white shadow-sm transition-all hover:bg-zinc-900 disabled:cursor-not-allowed disabled:opacity-75"
               >
                 {loading ? (
                   <Spinner className="size-3.5" />

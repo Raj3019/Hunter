@@ -24,6 +24,9 @@ import {
 import { FlippingLogoBadge } from "../components/ui/PlatformLogos";
 import { Spinner } from "../components/ui/spinner";
 
+// Your X/Twitter handle (without the @) — shown as the "Built by @handle" hero credit.
+const BUILDER_HANDLE = "yourhandle";
+
 const LIVE_DEMO_JOBS = [
   {
     company: "Razorpay",
@@ -255,11 +258,25 @@ export function Home() {
         {/* Hero */}
         <section className="mx-auto max-w-7xl space-y-12 px-6 pb-20 pt-16 text-center md:pb-28 md:pt-24">
           <div className="mx-auto max-w-4xl space-y-6">
-            <div className="inline-flex animate-fade-in-slide items-center gap-2 rounded-full border border-brand-border bg-white px-3.5 py-1.5 text-[11px] font-semibold shadow-sm">
-              <Sparkles className="h-3.5 w-3.5 text-brand-clay" />
-              <span className="font-sans font-medium text-zinc-700">Bespoke resume aggregation for elite developers</span>
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-brand-clay" />
-            </div>
+            <a
+              href={`https://x.com/${BUILDER_HANDLE}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex animate-fade-in-slide items-center gap-2.5 rounded-full border border-brand-border bg-white px-5 py-2.5 text-sm font-semibold shadow-sm transition-colors hover:border-brand-clay/60 hover:bg-brand-chalk/40"
+            >
+              <span className="font-sans font-medium text-zinc-500">Not backed by</span>
+              <span className="inline-flex items-center gap-1.5 text-zinc-400 line-through decoration-zinc-400 decoration-[1.5px]">
+                <svg viewBox="0 0 48 48" aria-hidden="true" className="h-4 w-4 shrink-0 no-underline" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M47.9985 47.9994H0V8.61853e-07H47.9985V47.9994Z" fill="#FF6600" />
+                  <path d="M13.9012 11.7843H17.6595L22.4961 21.5325C23.203 22.9836 23.7984 24.3976 23.7984 24.3976C23.7984 24.3976 24.4313 23.021 25.175 21.5325L30.0868 11.7843H33.5843L25.2865 27.3746V37.309H22.1244V27.1884L13.9012 11.7843Z" fill="white" />
+                </svg>
+                Y&nbsp;Combinator
+              </span>
+              <svg viewBox="0 0 24 24" aria-hidden="true" className="h-4 w-4 shrink-0 text-zinc-900" fill="currentColor">
+                <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+              </svg>
+              <span className="font-sans font-bold text-zinc-950">@{BUILDER_HANDLE}</span>
+            </a>
 
             <h1 className="mx-auto max-w-5xl text-center font-display text-3xl font-black leading-[1.2] tracking-tight text-zinc-950 sm:text-5xl md:text-6xl lg:text-[4.5rem]">
               Target hyper-aligned roles on
@@ -273,11 +290,11 @@ export function Home() {
             </p>
 
             <div className="mx-auto flex max-w-md flex-col justify-center gap-3 pt-3 sm:flex-row">
-              <button type="button" onClick={goRegister} className="flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-brand-pine px-6 text-xs font-bold text-white shadow-md transition-all hover:scale-[1.01] active:scale-[0.99]">
-                Access Free Account <Sparkle className="h-3.5 w-3.5 text-white/90" />
+              <button type="button" onClick={goRegister} className="flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-brand-pine px-6 text-sm font-bold text-white shadow-md transition-all hover:scale-[1.01] hover:bg-brand-pine-deep active:scale-[0.99]">
+                Get started free <ArrowRight className="h-4 w-4" />
               </button>
-              <button type="button" onClick={goAuth} className="flex h-11 items-center justify-center gap-2 rounded-xl border border-brand-border bg-brand-linen px-6 text-xs font-bold text-zinc-800 shadow-sm transition-all hover:bg-brand-chalk">
-                Inspect Sandbox
+              <button type="button" onClick={goSignIn} className="flex h-11 flex-1 items-center justify-center gap-2 rounded-xl border border-brand-border bg-white px-6 text-sm font-bold text-zinc-800 shadow-sm transition-all hover:border-brand-pine hover:bg-brand-chalk sm:flex-none">
+                Sign in
               </button>
             </div>
 
@@ -664,9 +681,10 @@ export function Home() {
               <span className="-mt-1 block font-mono text-[9px] font-bold text-zinc-400">© 2026 Job automation suite</span>
             </div>
           </div>
-          <div className="flex gap-5 font-bold uppercase tracking-wider text-zinc-400" style={{ fontSize: "10px" }}>
+          <div className="flex flex-wrap items-center gap-5 font-bold uppercase tracking-wider text-zinc-400" style={{ fontSize: "10px" }}>
             <span>Private by default</span>
             <span>You confirm every apply</span>
+            <button type="button" onClick={() => navigate("/terms")} className="uppercase tracking-wider text-zinc-500 transition-colors hover:text-zinc-950">Terms &amp; Conditions</button>
             <span>Made in India 🇮🇳</span>
           </div>
         </div>
