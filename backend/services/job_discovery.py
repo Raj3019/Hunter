@@ -56,6 +56,11 @@ async def run_manual_search(
         freshness_days=freshness_days,
     )
     resume = _get_latest_resume(db, user_id)
+    # Experience precedence: an explicit search value or saved Settings value (including 0)
+    # wins; only when neither is set do we fall back to the resume's parsed years, so the
+    # portal experience filter reflects the resume (and stays consistent with the match-score).
+    if not request.get("experience_explicit"):
+        request["experience_years"] = max(0, _int_value((resume or {}).get("total_experience_years"), 0))
     tokens = _get_portal_tokens(db, user_id)
     _validate_connected_portals(request["portals"], tokens)
 
@@ -618,10 +623,11 @@ def _normalize_request(
     if unsupported:
         raise DiscoveryError(400, f"Manual search currently supports: {', '.join(sorted(SUPPORTED_MANUAL_PORTALS))}.")
 
-    normalized_experience = _int_value(
-        experience_years if experience_years is not None else prefs.get("experience_years"),
-        0,
-    )
+    # An explicit search value or a saved Settings value (including 0) wins; only when both
+    # are unset (None) do we later fall back to the resume's parsed experience.
+    resolved_experience = experience_years if experience_years is not None else prefs.get("experience_years")
+    experience_explicit = resolved_experience is not None
+    normalized_experience = _int_value(resolved_experience, 0)
     normalized_max_pages = _int_value(max_pages, 1)
     normalized_results = _int_value(results_per_page, MAX_RESULTS_PER_PAGE)
     normalized_min_score = _int_value(min_score, DEFAULT_MIN_SCORE)
@@ -645,6 +651,7 @@ def _normalize_request(
         "max_salary": _int_value(prefs.get("max_salary"), 0),
         "avoid_companies": normalized_avoid_companies,
         "experience_years": max(0, normalized_experience),
+        "experience_explicit": experience_explicit,
         "portals": normalized_portals,
         "max_pages": normalized_max_pages,
         "results_per_page": normalized_results,
@@ -865,6 +872,11 @@ def _scoring_context(request: dict, resume: dict | None, *, fast: bool = False) 
     preference_terms = _preference_terms_from_request(request)
     if resume_available:
         profile = {**(resume or {}), "_scoring_mode": "manual_search" if fast else "resume"}
+        # The saved Settings "Experience (years)" value is the user's explicit override; when
+        # set (including 0, e.g. internships counted but the user is a fresher) it wins over the
+        # resume's parsed value so the experience filter and the AI match-score use the same number.
+        if request.get("experience_explicit"):
+            profile["total_experience_years"] = _int_value(request.get("experience_years"), 0)
     else:
         profile_terms = preference_terms or _split_search_terms(request.get("query") or DEFAULT_QUERY)
         profile = {

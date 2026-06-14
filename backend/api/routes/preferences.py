@@ -17,7 +17,7 @@ class PreferencesIn(BaseModel):
     work_type: List[str] = Field(default_factory=list)
     min_salary: Optional[int] = 0
     max_salary: Optional[int] = 0
-    experience_years: Optional[int] = 0
+    experience_years: Optional[int] = None
     avoid_companies: List[str] = Field(default_factory=list)
     apply_mode: Optional[Literal["manual", "auto"]] = "manual"
     auto_apply_enabled: Optional[bool] = False

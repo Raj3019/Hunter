@@ -69,13 +69,20 @@ Required format:
 
 Rules:
 - skills: combine technical and soft skills in a flat list
-- total_experience_years: calculate from work history dates; 0 if fresher
+- total_experience_years: estimate total professional experience in years. Add up the
+  durations of EVERY dated entry under work experience, internships, freelance, and
+  contract roles (treat "Present"/"Current"/"Now" as today's date). Count internships and
+  freelance/contract work. If an explicit phrase like "X+ years of experience" appears, use
+  the larger of that and your computed sum. Round to the nearest whole number, but return at
+  least 1 whenever there is any dated professional/internship entry. Return 0 ONLY for a true
+  fresher whose resume has no dated work/internship/freelance history at all (projects and
+  coursework alone do not count as experience).
 - education: e.g. "B.Tech Computer Science, VIT University, 2023"
 - summary: 2-3 sentence professional summary from the resume; write one if not present
 - If a field is missing from the resume, use empty string or empty array
 
 Resume text:
-{raw_text[:6000]}""",
+{raw_text[:12000]}""",
             max_tokens=1500,
         )
 

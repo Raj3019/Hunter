@@ -103,7 +103,7 @@ export function Settings({ userProfile, onProfileSaved }: { userProfile?: UserPr
           setAvoid(toArray(data.avoid_companies));
           setWorkType(toArray(data.work_type).join(", "));
           setSalary(salaryText(data.min_salary, data.max_salary));
-          setExperience(data.experience_years ? `${data.experience_years}` : "");
+          setExperience(data.experience_years === null || data.experience_years === undefined ? "" : `${data.experience_years}`);
           setSafeApply({
             start: timeText(data.safe_apply_start_time, "09:00"),
             end: timeText(data.safe_apply_end_time, "20:00"),
@@ -176,7 +176,7 @@ export function Settings({ userProfile, onProfileSaved }: { userProfile?: UserPr
         work_type: splitList(workType),
         min_salary: parseNumber(salary, 0),
         max_salary: parseNumber(salary, 1),
-        experience_years: Number(experience || 0),
+        experience_years: experience.trim() === "" ? null : Number(experience),
         avoid_companies: avoid,
         apply_mode: "manual",
         auto_apply_enabled: false,
@@ -319,8 +319,9 @@ export function Settings({ userProfile, onProfileSaved }: { userProfile?: UserPr
             <div className="grid gap-4 sm:grid-cols-3">
               <div className="space-y-1.5"><Label>Work type</Label><Input value={workType} onChange={(e) => setWorkType(e.target.value)} placeholder="Hybrid, Remote" /></div>
               <div className="space-y-1.5"><Label>Salary</Label><Input value={salary} onChange={(e) => setSalary(e.target.value)} placeholder="15-28 LPA" /></div>
-              <div className="space-y-1.5"><Label>Experience (years)</Label><Input value={experience} onChange={(e) => setExperience(e.target.value)} placeholder="3-5" /></div>
+              <div className="space-y-1.5"><Label>Experience (years)</Label><Input type="number" min={0} value={experience} onChange={(e) => setExperience(e.target.value)} placeholder="e.g. 3" /></div>
             </div>
+            <p className="-mt-2 text-[11px] leading-relaxed text-zinc-400">Leave blank to use the experience read from your resume. Enter a number to override it — including <b>0</b> if internships were counted but you consider yourself a fresher.</p>
             <div className="space-y-3 rounded-2xl border border-zinc-200/60 bg-zinc-50/50 p-4">
               <Label>Recommend jobs scoring at least</Label>
               <div className="flex items-center gap-3.5">
