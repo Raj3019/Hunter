@@ -1,8 +1,18 @@
-import { Building2, Download, ExternalLink, FileText, Globe, Link2, Lock, Plus, RefreshCw, Save, ShieldCheck, Trash2, User } from "lucide-react";
-import { useEffect, useLayoutEffect, useState } from "react";
+import { Building2, CircleAlert, Download, FileText, Link2, Lock, Plus, Save, ShieldCheck, Trash2, User } from "lucide-react";
+import { forwardRef, type ComponentPropsWithoutRef, type MouseEvent, type ReactNode, useEffect, useLayoutEffect, useState } from "react";
 import { StatusPill } from "../components/StatusPill";
 import { Spinner } from "../components/ui/spinner";
 import { useToast } from "../components/Toast";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -45,7 +55,7 @@ const BROWSER_PORTAL_KEYS = ["internshala"];
 const PORTAL_LOGIN_URLS: Record<string, string> = {
   internshala: "https://internshala.com/login",
   naukri: "https://www.naukri.com/nlogin/login",
-  foundit: "https://www.foundit.in/seeker/login",
+  foundit: "https://www.foundit.in/rio/login/seeker",
 };
 
 const TABS = [
@@ -55,6 +65,90 @@ const TABS = [
   { key: "ACCOUNT", label: "Account", icon: User },
 ] as const;
 type TabKey = (typeof TABS)[number]["key"];
+
+type ConfirmRemovalDialogProps = {
+  title: string;
+  description: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  detailLabel?: string;
+  detail?: string;
+  onConfirm: () => Promise<void>;
+  children: ReactNode;
+};
+
+function ConfirmRemovalDialog({
+  title,
+  description,
+  confirmLabel = "Disconnect",
+  cancelLabel = "Cancel",
+  detailLabel = "What changes",
+  detail = "Saved credentials and session data will be removed from Hunter.",
+  onConfirm,
+  children,
+}: ConfirmRemovalDialogProps) {
+  const [open, setOpen] = useState(false);
+  const [pending, setPending] = useState(false);
+
+  const handleConfirm = async (event: MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    setPending(true);
+    try {
+      await onConfirm();
+      setOpen(false);
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <AlertDialog open={open} onOpenChange={(nextOpen) => !pending && setOpen(nextOpen)}>
+      <AlertDialogTrigger asChild>{children}</AlertDialogTrigger>
+      <AlertDialogContent className="gap-0 overflow-hidden rounded-lg border-zinc-200 bg-white p-0 shadow-[0_24px_70px_-42px_rgba(24,24,27,0.65)] sm:max-w-[440px]">
+        <div className="flex items-start gap-3 px-5 pb-4 pt-5">
+          <div className="flex size-10 shrink-0 items-center justify-center rounded-full border border-red-100 bg-red-50 text-[var(--state-error)]">
+            <CircleAlert className="size-5" />
+          </div>
+          <div className="min-w-0">
+            <AlertDialogTitle className="text-sm font-extrabold tracking-tight text-zinc-950">{title}</AlertDialogTitle>
+            <AlertDialogDescription className="mt-1 text-xs font-medium leading-relaxed text-zinc-500">{description}</AlertDialogDescription>
+          </div>
+        </div>
+        <div className="border-y border-zinc-100 bg-zinc-50/80 px-5 py-3">
+          <div className="rounded-lg border border-zinc-200 bg-white px-3 py-2">
+            <span className="block font-mono text-[9px] font-bold uppercase tracking-wider text-zinc-400">{detailLabel}</span>
+            <p className="mt-1 text-[11px] font-medium leading-relaxed text-zinc-600">{detail}</p>
+          </div>
+        </div>
+        <AlertDialogFooter className="gap-2 px-5 pb-5 pt-4 sm:space-x-0">
+          <AlertDialogCancel disabled={pending} className="h-9 rounded-lg px-3 text-xs font-bold">
+            {cancelLabel}
+          </AlertDialogCancel>
+          <AlertDialogAction variant="destructive" disabled={pending} onClick={handleConfirm} className="h-9 rounded-lg bg-[var(--state-error)] px-3 text-xs font-bold shadow-sm transition-all duration-200 ease-out hover:-translate-y-0.5 hover:bg-red-700 hover:shadow-[0_12px_28px_-18px_rgba(220,38,38,0.85)] focus-visible:ring-red-200">
+            {pending ? <Spinner className="size-4" /> : <Trash2 className="size-4" />}
+            {pending ? "Working..." : confirmLabel}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
+const DisconnectTriggerButton = forwardRef<HTMLButtonElement, ComponentPropsWithoutRef<typeof Button>>(({ className = "", ...props }, ref) => {
+  return (
+    <Button
+      ref={ref}
+      {...props}
+      type="button"
+      variant="outline"
+      className={`h-9 w-full rounded-xl border-red-200 bg-red-50/40 px-3 text-[11px] font-extrabold text-red-600 shadow-sm shadow-red-950/[0.02] transition-[background-color,border-color,color,box-shadow] duration-150 ease-out hover:border-red-300 hover:bg-red-50 hover:text-red-700 hover:shadow-[0_10px_22px_-18px_rgba(220,38,38,0.8)] focus-visible:ring-red-200 ${className}`}
+    >
+      <Trash2 className="size-4" />
+      Disconnect
+    </Button>
+  );
+});
+DisconnectTriggerButton.displayName = "DisconnectTriggerButton";
 
 function statusLabel(status: PortalState["status"]) {
   return { public: "Public search", connected: "Connected", connecting: "Connecting", expired: "Expired", manual: "Manual login", not_connected: "Not connected" }[status];
@@ -152,7 +246,6 @@ export function Portals() {
   };
 
   const disconnectNaukri = async () => {
-    if (!window.confirm("Disconnect Naukri? Your saved credentials and session will be removed.")) return;
     try {
       await portalsAPI.disconnectNaukri();
       toast.success("Naukri disconnected. Public search still works.");
@@ -182,7 +275,6 @@ export function Portals() {
   };
 
   const disconnectFoundit = async () => {
-    if (!window.confirm("Disconnect Foundit? Your saved credentials and session will be removed.")) return;
     try {
       await portalsAPI.disconnectFoundit();
       toast.success("Foundit disconnected. Public search still works.");
@@ -215,7 +307,6 @@ export function Portals() {
 
   const disconnectCareer = async (portalKey: string) => {
     const label = CAREER_LABELS[portalKey] || portalKey;
-    if (!window.confirm(`Disconnect ${label}? Your saved credentials will be removed.`)) return;
     try {
       await portalsAPI.disconnectCareer(portalKey);
       toast.success(`${label} disconnected.`);
@@ -252,7 +343,6 @@ export function Portals() {
   };
 
   const deleteCompany = async (companyKey: string) => {
-    if (!window.confirm("Remove this saved company account?")) return;
     try {
       await companyAccountsAPI.delete(companyKey);
       toast.success("Company account removed.");
@@ -331,9 +421,19 @@ export function Portals() {
                     <>
                       <p className="font-mono text-[10px] text-zinc-400">Session: <b className="text-zinc-700">{p.checked}</b></p>
                       <p className="text-xs leading-relaxed text-zinc-500">Connected and refreshing automatically. Public search works either way.</p>
-                      <Button type="button" variant="outline" onClick={onDisconnect} className="h-9 w-full rounded-xl text-[11px] text-[var(--state-error)] hover:border-[var(--state-error)]">
-                        <Trash2 className="h-4 w-4" /> Disconnect
-                      </Button>
+                      <div className="mt-1">
+                        <ConfirmRemovalDialog
+                          title={`Disconnect ${p.name}?`}
+                          description={`Hunter will remove your saved ${p.name} login and stop refreshing this portal session.`}
+                          detailLabel="Saved portal login"
+                          detail={`${p.name} credentials and session data will be deleted. Public search will still work after disconnecting.`}
+                          confirmLabel="Disconnect"
+                          cancelLabel="Keep connected"
+                          onConfirm={onDisconnect}
+                        >
+                          <DisconnectTriggerButton />
+                        </ConfirmRemovalDialog>
+                      </div>
                     </>
                   ) : (
                     <>
@@ -342,16 +442,24 @@ export function Portals() {
                         <Input type="email" placeholder="Portal email" autoComplete="username" value={creds.username} onChange={(e) => setCreds({ ...creds, username: e.target.value })} className="h-9 rounded-xl text-xs" />
                         <Input type="password" placeholder="Password (encrypted — never stored in plain text)" autoComplete="current-password" value={creds.password} onChange={(e) => setCreds({ ...creds, password: e.target.value })} className="h-9 rounded-xl text-xs" />
                       </div>
-                      <div className="flex gap-2">
-                        <StatusButton onClick={onSave} idleIcon={<Lock className="h-4 w-4 text-brand-clay" />} text={{ loading: "Validating…", success: "Connected", error: "Failed" }} className="h-9 flex-1 text-[11px]">
-                          {expired ? "Reconnect" : "Save & validate"}
-                        </StatusButton>
-                        <Button type="button" variant="outline" onClick={() => openPortalLogin(p)} className="h-9 flex-1 rounded-xl text-[11px]">
-                          <Globe className="h-4 w-4" /> Connect via browser
-                        </Button>
-                      </div>
+                      <StatusButton onClick={onSave} idleIcon={<Lock className="h-4 w-4 text-brand-clay" />} text={{ loading: "Validating…", success: "Connected", error: "Failed" }} className="h-9 w-full text-[11px]">
+                        {expired ? "Reconnect" : "Save & validate"}
+                      </StatusButton>
+                      <p className="text-[10px] leading-relaxed text-zinc-400">
+                        Hunter connects to {p.name} through this encrypted sign-in. Logging in on {p.name}'s own site won't link it here — and public search works without connecting at all.
+                      </p>
                       {expired && (
-                        <button type="button" onClick={onDisconnect} className="inline-flex items-center gap-1 text-[10px] font-bold text-zinc-400 hover:text-[var(--state-error)]"><Trash2 className="h-3 w-3" /> Remove saved login</button>
+                        <ConfirmRemovalDialog
+                          title={`Remove saved ${p.name} login?`}
+                          description={`Hunter will clear the expired ${p.name} credentials and session state.`}
+                          detailLabel="Expired session"
+                          detail="This only removes the saved login. You can reconnect the portal any time."
+                          confirmLabel="Remove login"
+                          cancelLabel="Keep it"
+                          onConfirm={onDisconnect}
+                        >
+                          <button type="button" className="inline-flex items-center gap-1 text-[10px] font-bold text-zinc-400 hover:text-[var(--state-error)]"><Trash2 className="h-3 w-3" /> Remove saved login</button>
+                        </ConfirmRemovalDialog>
                       )}
                     </>
                   )}
@@ -400,6 +508,13 @@ export function Portals() {
                 const username = acc.type === "career" ? byKey(acc.key).checked : companyAccounts[acc.key];
                 const expanded = activeAccount === acc.key;
                 const saving = acc.type === "career" ? Boolean(careerSaving[acc.key]) : false;
+                const removeTitle = acc.type === "career" ? `Disconnect ${acc.label}?` : `Remove ${acc.label} account?`;
+                const removeDescription =
+                  acc.type === "career"
+                    ? `Hunter will remove the saved ${acc.label} careers login and stop importing applied status from that portal.`
+                    : "Hunter will remove this encrypted company account from your workspace.";
+                const removeDetail = acc.type === "career" ? "Saved credentials for this career portal will be deleted." : "The encrypted username and password for this company account will be deleted.";
+                const removeAccount = acc.type === "career" ? () => disconnectCareer(acc.key) : () => deleteCompany(acc.key);
                 return (
                   <div key={acc.key} className="rounded-2xl border border-zinc-200 bg-white p-3.5">
                     <div className="flex items-center justify-between gap-2">
@@ -412,7 +527,17 @@ export function Portals() {
                         )}
                       </div>
                       {connected ? (
-                        <Button type="button" variant="outline" size="sm" onClick={() => (acc.type === "career" ? disconnectCareer(acc.key) : deleteCompany(acc.key))} className="h-8 shrink-0 rounded-lg text-[10px]">Remove</Button>
+                        <ConfirmRemovalDialog
+                          title={removeTitle}
+                          description={removeDescription}
+                          detailLabel="Saved account"
+                          detail={removeDetail}
+                          confirmLabel="Remove"
+                          cancelLabel="Keep saved"
+                          onConfirm={removeAccount}
+                        >
+                          <Button type="button" variant="outline" size="sm" className="h-8 shrink-0 rounded-lg text-[10px]">Remove</Button>
+                        </ConfirmRemovalDialog>
                       ) : (
                         <Button type="button" size="sm" onClick={() => { setActiveAccount(expanded ? null : acc.key); if (acc.type === "company") setCompanyDraft({ company: acc.key, username: "", password: "" }); }} className="h-8 shrink-0 rounded-lg bg-brand-pine text-[10px] hover:bg-brand-pine-deep"><Plus className="h-3.5 w-3.5 text-brand-clay" /> Add</Button>
                       )}

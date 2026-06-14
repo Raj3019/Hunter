@@ -12,6 +12,13 @@ Update this file after every meaningful implementation change.
 
 ## Completed
 
+- **Portal Disconnect Alert Dialog Polish** (`frontend/src/pages/Portals.tsx`, `frontend/src/components/ui/alert-dialog.tsx`, `frontend/package.json`)
+  - Installed the requested ReUI/shadcn alert-dialog dependency via `npx shadcn@latest add @reui/c-alert-dialog-8` and added the local shadcn alert-dialog primitive.
+  - Replaced native browser `window.confirm` prompts for Naukri, Foundit, career portals, and company-account removal with a styled in-app destructive confirmation dialog.
+  - Refined the connected-portal Disconnect action to a centered compact destructive button and smoothed the dialog overlay/content transitions.
+  - Fixed the centered Disconnect trigger by forwarding Radix trigger props/ref through the custom button component.
+  - `npm run build` passes.
+
 - **Auth Password Visibility Toggle** (`frontend/src/pages/Auth.tsx`)
   - Added accessible show/hide password controls to both Password and Confirm Password fields using eye icons.
   - `npm run build` passes.
