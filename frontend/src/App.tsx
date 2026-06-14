@@ -117,6 +117,16 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [manualSearchNotice, manualSearchLoading]);
   const [applyNotice, setApplyNotice] = useState<ApplyNotice | null>(null);
+
+  // Apply notices are transient confirmations shown after acting on a job. Auto-dismiss the
+  // non-actionable ones (the "Marked as ..." / info / error banners) after a few seconds, like
+  // the search and toast notices. The "Did you apply?" prompt is confirmable and must stay
+  // until the user responds, so it is exempt.
+  useEffect(() => {
+    if (!applyNotice || applyNotice.confirmable) return;
+    const timer = window.setTimeout(() => setApplyNotice(null), 6000);
+    return () => window.clearTimeout(timer);
+  }, [applyNotice]);
   const [pendingApply, setPendingApply] = useState<PendingApply | null>(null);
   const [portalIssues, setPortalIssues] = useState<PortalIssue[]>([]);
   const [userProfile, setUserProfile] = useState<UserProfile>({ name: "", email: "" });

@@ -1,5 +1,6 @@
 import logging
 import re
+from datetime import date
 
 import pdfplumber
 import pypdf
@@ -42,8 +43,10 @@ async def parse_resume(pdf_path: str) -> dict:
         raise ValueError("Could not extract any text from the PDF. Is it a scanned/image PDF?")
 
     try:
+        today = date.today().isoformat()
         raw = await complete_text(
             prompt=f"""Extract structured data from this resume.
+Today's date is {today}. Use it to compute durations for any role still ongoing.
 Return ONLY valid JSON. No explanation, no markdown, no code fences.
 
 Required format:
@@ -54,6 +57,7 @@ Required format:
   "location": "",
   "current_role": "",
   "total_experience_years": 0,
+  "work_periods": [],
   "skills": [],
   "technical_skills": [],
   "soft_skills": [],
@@ -69,14 +73,14 @@ Required format:
 
 Rules:
 - skills: combine technical and soft skills in a flat list
-- total_experience_years: estimate total professional experience in years. Add up the
-  durations of EVERY dated entry under work experience, internships, freelance, and
-  contract roles (treat "Present"/"Current"/"Now" as today's date). Count internships and
-  freelance/contract work. If an explicit phrase like "X+ years of experience" appears, use
-  the larger of that and your computed sum. Round to the nearest whole number, but return at
-  least 1 whenever there is any dated professional/internship entry. Return 0 ONLY for a true
-  fresher whose resume has no dated work/internship/freelance history at all (projects and
-  coursework alone do not count as experience).
+- work_periods: for EACH role under work experience, internships, freelance, or contract
+  (NOT education), output an object {{"start": "YYYY-MM", "end": "YYYY-MM"}}. Use "present"
+  for the end of any ongoing role ("Present"/"Current"/"Now"/"Till date"). If only a year is
+  given, use "YYYY-01". Do NOT include education, projects, or coursework here.
+- total_experience_years: estimate total professional experience in years from the
+  work_periods above (sum their durations, treating "present" as today). Round to the nearest
+  whole number; return at least 1 if any work_period exists, 0 only for a true fresher with no
+  work/internship/freelance history.
 - education: e.g. "B.Tech Computer Science, VIT University, 2023"
 - summary: 2-3 sentence professional summary from the resume; write one if not present
 - If a field is missing from the resume, use empty string or empty array
@@ -86,10 +90,77 @@ Resume text:
             max_tokens=1500,
         )
 
-        return parse_json_response(raw)
+        parsed = parse_json_response(raw)
+        # LLMs are unreliable at date arithmetic, so recompute experience deterministically
+        # from the extracted work_periods and take the larger of the two values.
+        computed = _years_from_work_periods(parsed.get("work_periods"))
+        if computed is not None:
+            parsed["total_experience_years"] = max(computed, _safe_int(parsed.get("total_experience_years")))
+        return parsed
     except Exception as exc:
         logger.warning("AI resume parsing failed; using local fallback parser: %s", exc)
         return _fallback_parse_resume(raw_text)
+
+
+def _safe_int(value) -> int:
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _years_from_work_periods(periods) -> int | None:
+    """Sum the (merged, non-overlapping) durations of extracted work periods -> whole years."""
+    if not isinstance(periods, list) or not periods:
+        return None
+    today = date.today()
+    intervals: list[tuple[date, date]] = []
+    for period in periods:
+        if not isinstance(period, dict):
+            continue
+        start = _parse_year_month(period.get("start"))
+        end_raw = str(period.get("end") or "").strip().lower()
+        end = today if end_raw in {"present", "current", "now", "till date", "ongoing", ""} else _parse_year_month(period.get("end"))
+        if start and end and end > start:
+            intervals.append((start, end))
+    if not intervals:
+        return None
+    intervals.sort()
+    merged = [intervals[0]]
+    for start, end in intervals[1:]:
+        last_start, last_end = merged[-1]
+        if start <= last_end:
+            merged[-1] = (last_start, max(last_end, end))
+        else:
+            merged.append((start, end))
+    total_months = sum((end.year - start.year) * 12 + (end.month - start.month) for start, end in merged)
+    return max(0, round(total_months / 12))
+
+
+def _parse_year_month(value) -> date | None:
+    """Parse 'YYYY-MM' or 'YYYY' (also tolerates 'Mon YYYY') into a date (day=1)."""
+    if not value:
+        return None
+    text = str(value).strip()
+    iso = re.match(r"(\d{4})\D+(\d{1,2})", text)
+    if iso:
+        year, month = int(iso.group(1)), min(12, max(1, int(iso.group(2))))
+        return date(year, month, 1)
+    named = re.search(r"([A-Za-z]{3,9})\.?\s+(\d{4})", text)
+    if named:
+        month = _MONTHS.get(named.group(1)[:3].lower())
+        if month:
+            return date(int(named.group(2)), month, 1)
+    year_only = re.search(r"(19|20)\d{2}", text)
+    if year_only:
+        return date(int(year_only.group(0)), 1, 1)
+    return None
+
+
+_MONTHS = {
+    "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+    "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
+}
 
 
 def _fallback_parse_resume(raw_text: str) -> dict:
