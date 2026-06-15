@@ -243,7 +243,7 @@ export function Settings({ userProfile, onProfileSaved }: { userProfile?: UserPr
                 <Label>Full name</Label>
                 <div className="relative">
                   <UserRound className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
-                  <Input value={profileName} onChange={(e) => setProfileName(e.target.value)} placeholder="Raj Chauhan" className="h-11 rounded-xl pl-9" />
+                  <Input value={profileName} onChange={(e) => setProfileName(e.target.value)} placeholder="Your full name" className="h-11 rounded-xl pl-9" />
                 </div>
               </div>
               <div className="space-y-1.5">

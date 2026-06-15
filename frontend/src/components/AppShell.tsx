@@ -17,7 +17,6 @@ import { type FormEvent, useState } from "react";
 import { BrandMark } from "./BrandMark";
 import { Spinner } from "./ui/spinner";
 import { useToast } from "./Toast";
-import { FamilyButton } from "./ui/family-button";
 import { Avatar, AvatarFallback } from "./ui/avatar";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "./ui/hover-card";
 import { clearCurrentUserProfile, currentUserEmail, currentUserName, userInitials } from "@/lib/session";
@@ -264,15 +263,6 @@ export function AppShell({
           <div className="mx-auto min-w-0 w-full max-w-[1536px] p-4 sm:p-6 lg:p-8">{children}</div>
         </div>
       </main>
-
-      <FamilyButton
-        actions={[
-          { icon: <Search size={16} />, label: "Search jobs", onClick: () => navigate("/jobs") },
-          { icon: <RefreshCw size={16} />, label: "Sync now", onClick: () => void runSync() },
-          { icon: <KanbanSquare size={16} />, label: "Open Tracker", onClick: () => navigate("/tracker") },
-          { icon: <Link2 size={16} />, label: "Manage portals", onClick: () => navigate("/portals") },
-        ]}
-      />
     </div>
   );
 }

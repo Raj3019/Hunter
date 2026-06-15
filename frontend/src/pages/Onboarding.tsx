@@ -80,8 +80,8 @@ export function Onboarding() {
         job_titles: splitList(preferences.titles),
         locations: splitList(preferences.locations),
         work_type: splitList(preferences.workType),
-        min_salary: parseSalary(preferences.salary, 0),
-        max_salary: parseSalary(preferences.salary, 1),
+        min_salary: lpaToRupees(preferences.salary),
+        max_salary: 0,
         experience_years: parseExperience(preferences.experience),
         avoid_companies: splitList(preferences.avoid),
         apply_mode: "manual",
@@ -155,10 +155,10 @@ export function Onboarding() {
               <div {...getRootProps()} className={`cursor-pointer rounded-2xl border border-dashed p-8 text-center transition-colors ${isDragActive ? "border-brand-clay bg-brand-chalk/60" : "border-brand-border bg-brand-chalk/30 hover:border-brand-pine"}`}>
                 <input {...getInputProps()} />
                 <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-pine text-white">
-                  <FileUp className="h-5 w-5 text-brand-clay" />
+                  {parseState === "parsing" ? <Spinner className="size-5 text-brand-clay" /> : <FileUp className="h-5 w-5 text-brand-clay" />}
                 </div>
-                <h3 className="mt-3 text-base font-bold text-brand-pine">Drag & drop your CV</h3>
-                <p className="mt-1 text-sm text-brand-sand">Drop a text-based PDF or click to choose one.</p>
+                <h3 className="mt-3 text-base font-bold text-brand-pine">{parseState === "parsing" ? "Reading your resume…" : "Drag & drop your CV"}</h3>
+                <p className="mt-1 text-sm text-brand-sand">{parseState === "parsing" ? "Parsing skills and experience — one moment." : "Drop a text-based PDF or click to choose one."}</p>
               </div>
 
               <div className="mt-4 rounded-2xl border border-brand-border bg-brand-chalk/40 p-4">
@@ -193,20 +193,24 @@ export function Onboarding() {
             <h2 className="font-display text-lg font-extrabold text-brand-pine">Job preferences</h2>
             <p className="mt-1 text-sm text-brand-sand">These values feed job fetching. Your resume still powers the match score and skill gaps.</p>
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              {[
-                ["skills", "Skills"],
-                ["titles", "Job titles"],
-                ["locations", "Locations"],
-                ["workType", "Work type"],
-                ["salary", "Salary"],
-                ["experience", "Experience years"],
-                ["avoid", "Avoid list"],
-              ].map(([key, label]) => (
+              {([
+                ["skills", "Skills", "text", "React, Node.js"],
+                ["titles", "Job titles", "text", "Senior Frontend Developer"],
+                ["locations", "Locations", "text", "Mumbai, Pune, Remote"],
+                ["workType", "Work type", "text", "Remote, Hybrid"],
+                ["salary", "Salary (LPA)", "number", "e.g. 15"],
+                ["experience", "Experience years", "number", "e.g. 2"],
+                ["avoid", "Avoid list", "text", "Consultancies"],
+              ] as const).map(([key, label, type, placeholder]) => (
                 <label key={key} className="text-sm">
                   <span className="mb-1 block text-xs font-bold text-zinc-500">{label}</span>
                   <input
+                    type={type}
+                    min={type === "number" ? 0 : undefined}
+                    inputMode={type === "number" ? "numeric" : undefined}
+                    placeholder={placeholder}
                     className="h-10 w-full rounded-xl border border-brand-border bg-brand-chalk/40 px-3 text-sm focus:border-brand-pine focus:outline-none"
-                    value={preferences[key as keyof typeof preferences]}
+                    value={preferences[key]}
                     onChange={(event) => setPreferences((current) => ({ ...current, [key]: event.target.value }))}
                   />
                 </label>
@@ -279,9 +283,6 @@ export function Onboarding() {
               Enter workspace
             </button>
           )}
-          <button type="button" onClick={() => navigate("/portals")} className="rounded-xl border border-brand-border px-4 py-2 text-sm text-brand-sand transition-colors hover:border-brand-pine hover:text-brand-pine">
-            Manage portals
-          </button>
         </div>
       </section>
     </div>
@@ -309,10 +310,9 @@ function listFromResume(resume: Record<string, unknown>, keys: string[]): string
   return "";
 }
 
-function parseSalary(value: string, index: number): number {
-  const numbers = value.match(/\d+/g)?.map(Number) || [];
-  const picked = numbers[index] || numbers[0] || 0;
-  return value.toLowerCase().includes("lpa") ? picked * 100000 : picked;
+function lpaToRupees(value: string): number {
+  const lpa = Number(value);
+  return Number.isFinite(lpa) && lpa > 0 ? Math.round(lpa * 100000) : 0;
 }
 
 function parseExperience(value: string): number {
