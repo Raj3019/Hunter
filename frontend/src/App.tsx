@@ -96,6 +96,16 @@ export default function App() {
   const navigate = useNavigate();
   const location = useLocation();
   const toast = useToast();
+
+  // On every route change, jump to the top. Public pages scroll on the window; the
+  // authenticated app scrolls in an inner container (#app-scroll-container on desktop).
+  // Skip when navigating to an in-page anchor (#hash) so those links still work.
+  useEffect(() => {
+    if (location.hash) return;
+    window.scrollTo({ top: 0, left: 0, behavior: "instant" as ScrollBehavior });
+    document.getElementById("app-scroll-container")?.scrollTo({ top: 0, left: 0, behavior: "instant" as ScrollBehavior });
+  }, [location.pathname, location.hash]);
+
   const [jobs, setJobs] = useState<JobMatch[]>([]);
   const [applications, setApplications] = useState<Application[]>([]);
   const [recommendThreshold, setRecommendThreshold] = useState(DEFAULT_RECOMMEND_THRESHOLD);

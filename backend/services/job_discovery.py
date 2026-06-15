@@ -829,7 +829,11 @@ def _get_existing_applied_job_ids(db, user_id: str) -> set[str]:
 
     keys: set[str] = set()
     for row in result.data or []:
-        if (row.get("status") or "") not in {"applied", "viewed", "interview", "offer"}:
+        # Exclude jobs the user has already engaged with: confirmed/applied (applied, viewed,
+        # interview, offer) AND ones opened from the app and awaiting confirmation
+        # (external_pending) — otherwise a job you just applied to from Hunter reappears in
+        # the next search before its applied-status is confirmed or auto-detected.
+        if (row.get("status") or "") not in {"applied", "viewed", "interview", "offer", "external_pending"}:
             continue
         job = row.get("jobs") or {}
         portal = job.get("portal")

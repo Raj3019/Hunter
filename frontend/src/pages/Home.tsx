@@ -25,7 +25,7 @@ import { FlippingLogoBadge } from "../components/ui/PlatformLogos";
 import { Spinner } from "../components/ui/spinner";
 
 // Your X/Twitter handle (without the @) — shown as the "Built by @handle" hero credit.
-const BUILDER_HANDLE = "yourhandle";
+const BUILDER_HANDLE = "aksharaj369";
 
 const LIVE_DEMO_JOBS = [
   {
@@ -230,9 +230,8 @@ export function Home() {
             </div>
             <div className="text-left">
               <span className="block font-display text-sm font-extrabold tracking-tight text-zinc-950">Hunter.sh</span>
-              <span className="-mt-1 block font-mono text-[9px] font-bold uppercase tracking-tight text-zinc-400">SDE portals aggregator</span>
+              <span className="-mt-1 block font-mono text-[9px] font-bold uppercase tracking-tight text-zinc-400">portals aggregator</span>
             </div>
-            <span className="rounded border border-brand-border/40 bg-brand-chalk px-1.5 py-0.5 font-mono text-[9px] font-extrabold text-brand-pine">V3 ACTIVE</span>
           </div>
 
           <nav className="hidden items-center gap-6 font-sans text-xs font-bold text-zinc-500 md:flex">
@@ -264,7 +263,7 @@ export function Home() {
               rel="noopener noreferrer"
               className="inline-flex animate-fade-in-slide items-center gap-2.5 rounded-full border border-brand-border bg-white px-5 py-2.5 text-sm font-semibold shadow-sm transition-colors hover:border-brand-clay/60 hover:bg-brand-chalk/40"
             >
-              <span className="font-sans font-medium text-zinc-500">Not backed by</span>
+              <span className="font-sans font-medium text-zinc-500">Backed by</span>
               <span className="inline-flex items-center gap-1.5 text-zinc-400 line-through decoration-zinc-400 decoration-[1.5px]">
                 <svg viewBox="0 0 48 48" aria-hidden="true" className="h-4 w-4 shrink-0 no-underline" fill="none" xmlns="http://www.w3.org/2000/svg">
                   <path d="M47.9985 47.9994H0V8.61853e-07H47.9985V47.9994Z" fill="#FF6600" />
