@@ -3,7 +3,7 @@ import os
 
 from dotenv import load_dotenv
 
-from core.database import get_db
+from core.database import NULL_RESULT, get_db
 from services.job_discovery import DiscoveryError, run_manual_search
 
 load_dotenv()
@@ -67,12 +67,12 @@ async def main():
 def _resolve_user(db) -> dict | None:
     user_id = os.getenv("HUNTER_TEST_USER_ID", "").strip()
     if user_id:
-        result = db.table("profiles").select("*").eq("id", user_id).maybe_single().execute()
+        result = db.table("profiles").select("*").eq("id", user_id).maybe_single().execute() or NULL_RESULT
         return result.data
 
     email = os.getenv("HUNTER_TEST_EMAIL", "").strip()
     if email:
-        result = db.table("profiles").select("*").eq("email", email).maybe_single().execute()
+        result = db.table("profiles").select("*").eq("email", email).maybe_single().execute() or NULL_RESULT
         return result.data
 
     users = db.table("profiles").select("*").limit(1).execute()
@@ -93,7 +93,7 @@ def _print_prereq(db, user_id: str, table: str, required_field: str) -> None:
 
 
 def _print_preferences(db, user_id: str) -> None:
-    result = db.table("preferences").select("*").eq("user_id", user_id).maybe_single().execute()
+    result = db.table("preferences").select("*").eq("user_id", user_id).maybe_single().execute() or NULL_RESULT
     prefs = result.data or {}
     print(f"[INFO] preferences.job_titles: {prefs.get('job_titles') or 'missing'}")
     print(f"[INFO] preferences.skills: {prefs.get('skills') or 'missing'}")

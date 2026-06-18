@@ -15,6 +15,7 @@ Update this file after every meaningful implementation change.
 - **Manual Search VPS Smoke Script Update** (`backend/test_manual_search.py`)
   - Updated the manual-search smoke script to match the current `run_manual_search(page=...)` service signature instead of the stale `max_pages` argument.
   - Added `HUNTER_TEST_PORTALS` support so production checks can run against known-working VPS portals such as Foundit and Internshala without forcing Naukri.
+  - Guarded profile/preference lookups against Supabase `maybe_single()` returning `None` so missing test users report a clear failure instead of crashing.
   - `python -m py_compile backend/test_manual_search.py` passes.
 
 - **Portal Disconnect Alert Dialog Polish** (`frontend/src/pages/Portals.tsx`, `frontend/src/components/ui/alert-dialog.tsx`, `frontend/package.json`)
