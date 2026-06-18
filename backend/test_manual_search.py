@@ -24,13 +24,15 @@ async def main():
     _print_portal_status(db, user_id)
 
     if os.getenv("RUN_MANUAL_SEARCH_FULL") != "1":
-        print("[SKIP] Full manual search skipped. Set RUN_MANUAL_SEARCH_FULL=1 to run live Naukri search/scoring.")
+        print("[SKIP] Full manual search skipped. Set RUN_MANUAL_SEARCH_FULL=1 to run live portal search/scoring.")
         print("[PASS] Manual search prerequisites inspected")
         return
 
     query = os.getenv("HUNTER_TEST_SEARCH_QUERY", "")
     location = os.getenv("HUNTER_TEST_SEARCH_LOCATION", "Bengaluru")
-    print(f"\n[INFO] Running manual search: query={query!r} location={location!r}")
+    portals = _env_list("HUNTER_TEST_PORTALS", ["naukri"])
+    page = int(os.getenv("HUNTER_TEST_SEARCH_PAGE", os.getenv("HUNTER_TEST_SEARCH_PAGES", "1")))
+    print(f"\n[INFO] Running manual search: query={query!r} location={location!r} portals={portals!r} page={page}")
 
     try:
         result = await run_manual_search(
@@ -38,8 +40,8 @@ async def main():
             user_id=user_id,
             query=query,
             locations=[location],
-            portals=["naukri"],
-            max_pages=int(os.getenv("HUNTER_TEST_SEARCH_PAGES", "1")),
+            portals=portals,
+            page=page,
             results_per_page=int(os.getenv("HUNTER_TEST_RESULTS_PER_PAGE", "5")),
             min_score=int(os.getenv("HUNTER_TEST_MIN_SCORE", "60")),
             freshness_days=30,
@@ -52,8 +54,9 @@ async def main():
     print("[PASS] Manual search completed")
     print(f"       Fetched: {run['fetched_count']}")
     print(f"       New jobs: {run['new_jobs_count']}")
-    print(f"       Scored matches saved: {run['saved_matches_count']}")
+    print(f"       Scored matches returned: {run['saved_matches_count']}")
     print(f"       Recommended matches: {run.get('recommended_count', 0)}")
+    print(f"       Portal counts: {run.get('portal_counts') or {}}")
     if result.get("warnings"):
         print(f"       Warnings: {result['warnings'][:3]}")
 
@@ -74,6 +77,13 @@ def _resolve_user(db) -> dict | None:
 
     users = db.table("profiles").select("*").limit(1).execute()
     return (users.data or [None])[0]
+
+
+def _env_list(name: str, fallback: list[str]) -> list[str]:
+    value = os.getenv(name, "").strip()
+    if not value:
+        return fallback
+    return [item.strip().lower() for item in value.split(",") if item.strip()]
 
 
 def _print_prereq(db, user_id: str, table: str, required_field: str) -> None:

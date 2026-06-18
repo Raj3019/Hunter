@@ -12,6 +12,11 @@ Update this file after every meaningful implementation change.
 
 ## Completed
 
+- **Manual Search VPS Smoke Script Update** (`backend/test_manual_search.py`)
+  - Updated the manual-search smoke script to match the current `run_manual_search(page=...)` service signature instead of the stale `max_pages` argument.
+  - Added `HUNTER_TEST_PORTALS` support so production checks can run against known-working VPS portals such as Foundit and Internshala without forcing Naukri.
+  - `python -m py_compile backend/test_manual_search.py` passes.
+
 - **Portal Disconnect Alert Dialog Polish** (`frontend/src/pages/Portals.tsx`, `frontend/src/components/ui/alert-dialog.tsx`, `frontend/package.json`)
   - Installed the requested ReUI/shadcn alert-dialog dependency via `npx shadcn@latest add @reui/c-alert-dialog-8` and added the local shadcn alert-dialog primitive.
   - Replaced native browser `window.confirm` prompts for Naukri, Foundit, career portals, and company-account removal with a styled in-app destructive confirmation dialog.
