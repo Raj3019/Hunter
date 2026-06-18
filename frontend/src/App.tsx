@@ -25,7 +25,7 @@ const DEFAULT_RECOMMEND_THRESHOLD = 60;
 import { mapApplication, mapJobMatch } from "./api/mappers";
 import { setCurrentUserProfile } from "./lib/session";
 import type { Application, ApplicationStatus, JobMatch, SearchRunSummary } from "./types";
-import { isExternalApplyJob, openExternalApply } from "./utils/jobApply";
+import { isExternalApplyJob, jobSnapshotPayload, openExternalApply } from "./utils/jobApply";
 
 function isAuthed() {
   return Boolean(localStorage.getItem("access_token"));
@@ -417,7 +417,9 @@ export default function App() {
         const run = response.data?.run;
         setSearchHasMore(Boolean(run?.has_more));
         if (run) {
-          const queryLabel = trimmed ? `"${run.query}"` : "your saved profile";
+          const queryLabel = run.profile_based ? "your saved profile" : `"${run.query}"`;
+          // Only claim resume scoring when a resume was actually used.
+          const scoredLabel = run.resume_used ? ", scored against your resume" : ", scored on your search terms";
           setLastSearchSummary({
             query: String(run.query || trimmed),
             locations: Array.isArray(run.locations) ? run.locations : [],
@@ -429,7 +431,7 @@ export default function App() {
           const counts = (run.portal_counts || {}) as Record<string, number>;
           const breakdown = Object.entries(counts).map(([portal, n]) => `${portalName(portal)} ${n}`).join(" · ");
           setManualSearchNotice(
-            `${run.saved_matches_count} jobs found for ${queryLabel}, scored against your resume${breakdown ? ` — ${breakdown}` : ""}. Use "Load more" for additional pages.`
+            `${run.saved_matches_count} jobs found for ${queryLabel}${scoredLabel}${breakdown ? ` — ${breakdown}` : ""}. Use "Load more" for additional pages.`
           );
         } else {
           setLastSearchSummary(null);
@@ -1075,28 +1077,6 @@ function applyStatusTitle(status: ApplicationStatus | JobMatch["status"]): strin
   return "Apply status updated";
 }
 
-function jobSnapshotPayload(job: JobMatch) {
-  return {
-    job_id: job.jobId || job.id.replace(/^search:[^:]+:/, ""),
-    score: job.score || 0,
-    title: job.title,
-    company: job.company,
-    location: job.location,
-    experience: job.experience,
-    salary: job.salary,
-    posted_date: "",
-    apply_link: job.externalApplyUrl || "",
-    description: job.jdFullDescription || job.jdSummary,
-    portal: job.portal,
-    tags: job.matchedSkills,
-    has_questionnaire: false,
-    is_workday: job.portal.toLowerCase() === "workday",
-    is_taleo: job.portal.toLowerCase() === "taleo",
-    apply_method: job.applyMethod || "unknown",
-    external_apply_url: job.externalApplyUrl || "",
-    portal_metadata: { source: "manual_search_session", company_logo_url: job.companyLogoUrl || "" },
-  };
-}
 
 function text(value: unknown, fallback = ""): string {
   return typeof value === "string" && value.trim() ? value.trim() : fallback;

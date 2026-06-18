@@ -85,6 +85,7 @@ export const jobsAPI = {
   approve: (id: string) => api.post(`/api/jobs/${id}/approve`),
   skip: (id: string) => api.post(`/api/jobs/${id}/skip`),
   tailor: (id: string) => api.post(`/api/jobs/${id}/tailor`),
+  persistMatchSnapshot: (job: object) => api.post("/api/jobs/persist-match-snapshot", { job }),
   approveTailored: (id: string, tailored_resume_id: string) =>
     api.post(`/api/jobs/${id}/tailor/approve`, { tailored_resume_id }),
   openPortal: (id: string) => api.post(`/api/jobs/${id}/open-portal`),

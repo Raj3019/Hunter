@@ -387,6 +387,47 @@ async def tailor_for_match(match_id: str, user_id: str = Depends(get_current_use
     return {"success": True, "tailored": draft.get("tailoring") or tailored, "draft": draft}
 
 
+@router.post("/persist-match-snapshot")
+async def persist_match_snapshot(body: ApplySnapshotIn, user_id: str = Depends(get_current_user_id)):
+    """Persist a session-only search result as a PENDING job_match so it can be tailored.
+
+    Unlike open-portal-snapshot this creates no application, so the job is not marked
+    opened/awaiting-confirmation in the Tracker just for tailoring. Reuses an existing match
+    for the same job when one is present.
+    """
+    db = get_db()
+    job = _build_job(body.job.dict())
+    db_job_id = SafeApplyManager()._get_or_create_db_job_id(job)
+    if not db_job_id:
+        raise HTTPException(status_code=500, detail="Could not save job before tailoring")
+
+    existing = db.table("job_matches").select("id").eq(
+        "user_id", user_id
+    ).eq("job_id", db_job_id).maybe_single().execute() or NULL_RESULT
+    if existing.data and existing.data.get("id"):
+        return {"success": True, "match_id": existing.data["id"]}
+
+    payload = {
+        "user_id": user_id,
+        "job_id": db_job_id,
+        "match_score": _int_or_zero(body.job.score),
+        "match_reasons": [],
+        "matched_skills": list(body.job.tags or []),
+        "missing_skills": [],
+        "status": "pending",
+    }
+    created = db.table("job_matches").upsert(payload, on_conflict="user_id,job_id").execute()
+    match_id = (created.data or [{}])[0].get("id", "")
+    if not match_id:
+        again = db.table("job_matches").select("id").eq(
+            "user_id", user_id
+        ).eq("job_id", db_job_id).maybe_single().execute() or NULL_RESULT
+        match_id = (again.data or {}).get("id", "")
+    if not match_id:
+        raise HTTPException(status_code=500, detail="Could not create job match for tailoring")
+    return {"success": True, "match_id": match_id}
+
+
 @router.post("/{match_id}/tailor/approve")
 async def approve_tailored_resume(
     match_id: str,

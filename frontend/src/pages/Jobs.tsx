@@ -10,7 +10,9 @@ import { MatchMeter } from "@/components/ui/primitives";
 import { PortalLogo } from "@/components/ui/PlatformLogos";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { JobMatch, SearchRunSummary } from "../types";
-import { displayJobStatus, isExternalApplyJob, openExternalApply, statusLabel } from "../utils/jobApply";
+import { displayJobStatus, isExternalApplyJob, jobSnapshotPayload, openExternalApply, statusLabel } from "../utils/jobApply";
+import { apiErrorMessage, jobsAPI } from "../api/client";
+import { useToast } from "../components/Toast";
 
 interface JobsProps {
   jobs: JobMatch[];
@@ -31,6 +33,20 @@ interface JobsProps {
 function portalDisplayName(portal: string): string {
   const map: Record<string, string> = { naukri: "Naukri", foundit: "Foundit", internshala: "Internshala" };
   return map[portal?.toLowerCase()] || (portal ? portal.charAt(0).toUpperCase() + portal.slice(1) : "the portal");
+}
+
+// Brand colours matching each portal's logo (PlatformLogos), used to tint the
+// "Open on <portal>" button. Falls back to brand-pine for unmapped portals.
+const PORTAL_ACCENT: Record<string, string> = {
+  naukri: "#2460fb",
+  foundit: "#7206A9",
+  internshala: "#008BD2",
+  infosys: "#007cc3",
+  hcltech: "#0075c9",
+  capgemini: "#0070ad",
+};
+function portalAccent(portal: string): string {
+  return PORTAL_ACCENT[(portal || "").toLowerCase()] || "#18181b";
 }
 
 function scoreTone(s: number, threshold = 60) {
@@ -59,6 +75,29 @@ export function Jobs({ jobs, onSkip, onQueue, onRefresh, onSearch, searchLoading
   const [resultView, setResultView] = useState<"LIST" | "GRID">("LIST");
   const [sortBy, setSortBy] = useState<"MATCH" | "SALARY" | "COMPANY">("MATCH");
   const [tailorJob, setTailorJob] = useState<JobMatch | null>(null);
+  const [tailoringPrepId, setTailoringPrepId] = useState("");
+  const toast = useToast();
+
+  // Tailoring needs a persisted job_match. Session-only search results have a synthetic id,
+  // so persist the snapshot first (as a pending match, no application), then open the modal
+  // with the real id. Already-persisted jobs open straight away.
+  const handleTailor = async (job: JobMatch) => {
+    if (job.persisted !== false) {
+      setTailorJob(job);
+      return;
+    }
+    setTailoringPrepId(job.id);
+    try {
+      const response = await jobsAPI.persistMatchSnapshot(jobSnapshotPayload(job));
+      const matchId = response.data?.match_id as string | undefined;
+      if (!matchId) throw new Error("No match id returned");
+      setTailorJob({ ...job, id: matchId, persisted: true });
+    } catch (caught) {
+      toast.error(apiErrorMessage(caught, "Could not prepare this job for tailoring."));
+    } finally {
+      setTailoringPrepId("");
+    }
+  };
 
   const portals = useMemo(() => Array.from(new Set(jobs.map((job) => job.portal))), [jobs]);
 
@@ -90,6 +129,7 @@ export function Jobs({ jobs, onSkip, onQueue, onRefresh, onSearch, searchLoading
   const threshold = lastSearchSummary?.minScore || recommendThreshold;
   const recommendedCount = useMemo(() => sortedJobs.filter((j) => j.score >= threshold).length, [sortedJobs, threshold]);
   const selectedJob = useMemo(() => sortedJobs.find((j) => j.id === selectedJobId) || sortedJobs[0] || null, [selectedJobId, sortedJobs]);
+  const showTailor = selectedJob ? isExternalApplyJob(selectedJob) : false;
 
   useEffect(() => {
     if (selectedJob && selectedJob.id !== selectedJobId) setSelectedJobId(selectedJob.id);
@@ -322,51 +362,51 @@ export function Jobs({ jobs, onSkip, onQueue, onRefresh, onSearch, searchLoading
                     </div>
                   </div>
                 </div>
-                <div className="grid grid-cols-1 overflow-hidden rounded-xl border border-zinc-200/60 bg-white font-sans text-[11px] text-zinc-500 shadow-sm sm:grid-cols-3">
-                  <div className="space-y-0.5 p-3"><span className="font-mono text-[9px] font-bold uppercase tracking-wider text-zinc-400">Salary</span><p className="truncate font-extrabold text-zinc-900">{selectedJob.salary || "—"}</p></div>
-                  <div className="space-y-0.5 border-t border-zinc-100 p-3 sm:border-l sm:border-t-0"><span className="font-mono text-[9px] font-bold uppercase tracking-wider text-zinc-400">Experience</span><p className="truncate font-extrabold text-zinc-900">{selectedJob.experience || "—"}</p></div>
-                  <div className="space-y-0.5 border-t border-zinc-100 p-3 sm:border-l sm:border-t-0"><span className="font-mono text-[9px] font-bold uppercase tracking-wider text-zinc-400">Portal</span><p className="truncate font-extrabold text-zinc-900">{portalDisplayName(selectedJob.portal)}</p></div>
+                <div className="grid grid-cols-1 overflow-hidden rounded-xl border border-zinc-200/60 bg-white font-sans text-sm text-zinc-500 shadow-sm sm:grid-cols-3">
+                  <div className="space-y-1 p-3.5"><span className="font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-400">Salary</span><p className="truncate text-sm font-extrabold text-zinc-900">{selectedJob.salary || "—"}</p></div>
+                  <div className="space-y-1 border-t border-zinc-100 p-3.5 sm:border-l sm:border-t-0"><span className="font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-400">Experience</span><p className="truncate text-sm font-extrabold text-zinc-900">{selectedJob.experience || "—"}</p></div>
+                  <div className="space-y-1 border-t border-zinc-100 p-3.5 sm:border-l sm:border-t-0"><span className="font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-400">Portal</span><p className="truncate text-sm font-extrabold text-zinc-900">{portalDisplayName(selectedJob.portal)}</p></div>
                 </div>
               </div>
 
               <div className="space-y-5 border-b border-zinc-100 p-5 sm:p-6">
-                <div className="space-y-2.5 rounded-xl border border-brand-border bg-brand-linen p-4">
-                  <div className="flex items-center gap-1.5 text-xs font-extrabold text-brand-pine"><Sparkles className="h-4 w-4 text-brand-clay" /><span>Why you're a match</span></div>
-                  {selectedJob.note && <p className="text-xs font-medium leading-relaxed text-zinc-700">{selectedJob.note}</p>}
+                <div className="space-y-3 rounded-xl border border-brand-border bg-brand-linen p-5">
+                  <div className="flex items-center gap-1.5 text-sm font-extrabold text-brand-pine"><Sparkles className="h-4 w-4 text-brand-clay" /><span>Why you're a match</span></div>
+                  {selectedJob.note && <p className="text-[13px] font-medium leading-6 text-zinc-700">{selectedJob.note}</p>}
                   {(selectedJob.scoreBreakdown?.merits.length || selectedJob.scoreBreakdown?.demerits.length) ? (
-                    <div className="grid gap-4 border-t border-brand-border/40 pt-2.5 text-xs md:grid-cols-2">
-                      <div className="space-y-1.5">
-                        <span className="font-mono text-[9px] font-bold uppercase tracking-wider text-emerald-700">What works in your favour</span>
-                        <ul className="space-y-1 text-zinc-700">
+                    <div className="grid gap-5 border-t border-brand-border/50 pt-3 text-[13px] md:grid-cols-2">
+                      <div className="space-y-2">
+                        <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-emerald-700">What works in your favour</span>
+                        <ul className="space-y-1.5 text-zinc-700">
                           {(selectedJob.scoreBreakdown?.merits || []).map((m) => (
-                            <li key={m} className="flex items-start gap-1.5 font-medium"><span className="shrink-0 font-extrabold text-emerald-600">✓</span><span>{m}</span></li>
+                            <li key={m} className="flex items-start gap-2 font-medium leading-6"><span className="shrink-0 font-extrabold text-emerald-600">✓</span><span>{m}</span></li>
                           ))}
                         </ul>
                       </div>
-                      <div className="space-y-1.5">
-                        <span className="font-mono text-[9px] font-bold uppercase tracking-wider text-amber-800">Gaps to be aware of</span>
-                        <ul className="space-y-1 text-zinc-700">
+                      <div className="space-y-2">
+                        <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-amber-800">Gaps to be aware of</span>
+                        <ul className="space-y-1.5 text-zinc-700">
                           {(selectedJob.scoreBreakdown?.demerits || []).map((d) => (
-                            <li key={d} className="flex items-start gap-1.5 font-medium"><span className="shrink-0 font-extrabold text-amber-600">•</span><span>{d}</span></li>
+                            <li key={d} className="flex items-start gap-2 font-medium leading-6"><span className="shrink-0 font-extrabold text-amber-600">•</span><span>{d}</span></li>
                           ))}
                         </ul>
                       </div>
                     </div>
                   ) : (
-                    !selectedJob.note && <p className="text-xs font-medium leading-relaxed text-zinc-700">{selectedJob.jdSummary}</p>
+                    !selectedJob.note && <p className="text-[13px] font-medium leading-6 text-zinc-700">{selectedJob.jdSummary}</p>
                   )}
                 </div>
                 <div className="space-y-3">
-                  <h4 className="font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-400">Skills match</h4>
-                  <div className="space-y-2 text-xs">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <span className="w-20 shrink-0 font-mono text-[9px] font-bold uppercase text-emerald-600">You have ({selectedJob.matchedSkills.length}):</span>
-                      <div className="flex flex-wrap gap-1">{selectedJob.matchedSkills.map((skill) => (<span key={skill} className="rounded border border-emerald-100 bg-emerald-50 px-2 py-0.5 font-mono text-[10px] text-emerald-700">{skill}</span>))}</div>
+                  <h4 className="font-mono text-[11px] font-bold uppercase tracking-wider text-zinc-400">Skills match</h4>
+                  <div className="space-y-2.5 text-xs">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="w-20 shrink-0 font-mono text-[10px] font-bold uppercase text-emerald-600">You have ({selectedJob.matchedSkills.length}):</span>
+                      <div className="flex flex-wrap gap-1.5">{selectedJob.matchedSkills.map((skill) => (<span key={skill} className="rounded-md border border-emerald-100 bg-emerald-50 px-2 py-1 font-mono text-[11px] font-medium text-emerald-700">{skill}</span>))}</div>
                     </div>
                     {selectedJob.missingSkills.length > 0 && (
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="w-20 shrink-0 font-mono text-[9px] font-bold uppercase text-zinc-400">Missing ({selectedJob.missingSkills.length}):</span>
-                        <div className="flex flex-wrap gap-1">{selectedJob.missingSkills.map((skill) => (<span key={skill} className="rounded border border-zinc-200 bg-zinc-50 px-2 py-0.5 font-mono text-[10px] text-zinc-500">{skill}</span>))}</div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="w-20 shrink-0 font-mono text-[10px] font-bold uppercase text-zinc-400">Missing ({selectedJob.missingSkills.length}):</span>
+                        <div className="flex flex-wrap gap-1.5">{selectedJob.missingSkills.map((skill) => (<span key={skill} className="rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 font-mono text-[11px] text-zinc-500">{skill}</span>))}</div>
                       </div>
                     )}
                   </div>
@@ -375,13 +415,24 @@ export function Jobs({ jobs, onSkip, onQueue, onRefresh, onSearch, searchLoading
 
               <div className="space-y-5 p-5 sm:p-6">
                 <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
-                  <Button onClick={() => setTailorJob(selectedJob)} disabled={selectedJob.persisted === false} className="h-11 min-w-[180px] flex-1 rounded-xl bg-brand-pine hover:bg-brand-pine-deep"><FileText className="h-4 w-4" /> Tailor my resume</Button>
-                  <Button variant="outline" onClick={() => openSelectedPortal(selectedJob)} disabled={applyingLocked} className="h-11 shrink-0 rounded-xl">Open on {portalDisplayName(selectedJob.portal)} <ArrowUpRight className="h-4 w-4 text-zinc-400" /></Button>
+                  {showTailor && (
+                    <Button onClick={() => handleTailor(selectedJob)} disabled={tailoringPrepId === selectedJob.id} className="h-11 min-w-[180px] flex-1 rounded-xl bg-brand-pine hover:bg-brand-pine-deep">
+                      {tailoringPrepId === selectedJob.id ? <Spinner className="size-4" /> : <FileText className="h-4 w-4" />} Tailor my resume
+                    </Button>
+                  )}
+                  <Button
+                    onClick={() => openSelectedPortal(selectedJob)}
+                    disabled={applyingLocked}
+                    style={{ backgroundColor: portalAccent(selectedJob.portal) }}
+                    className="h-11 flex-1 rounded-xl text-white shadow-md transition hover:brightness-95"
+                  >
+                    Open on {portalDisplayName(selectedJob.portal)} <ArrowUpRight className="h-4 w-4 text-white/80" />
+                  </Button>
                   <Button variant="ghost" onClick={() => onSkip(selectedJob.id)} className="h-11 shrink-0 rounded-xl text-zinc-400 hover:text-[var(--state-error)]">Skip</Button>
                 </div>
-                <div className="space-y-2">
-                  <h4 className="font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-400">Job description</h4>
-                  <p className="break-words whitespace-pre-line rounded-xl border border-zinc-200/50 bg-zinc-50 p-4 text-xs leading-relaxed text-zinc-600">{selectedJob.jdFullDescription || selectedJob.jdSummary || "No description snapshot available yet."}</p>
+                <div className="space-y-2.5">
+                  <h4 className="font-mono text-[11px] font-bold uppercase tracking-wider text-zinc-400">Job description</h4>
+                  <p className="break-words whitespace-pre-line rounded-xl border border-zinc-200/60 bg-zinc-50/70 p-5 text-sm leading-7 text-zinc-700">{selectedJob.jdFullDescription || selectedJob.jdSummary || "No description snapshot available yet."}</p>
                 </div>
               </div>
             </Card>

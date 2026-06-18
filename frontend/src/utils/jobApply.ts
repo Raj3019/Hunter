@@ -41,3 +41,28 @@ export function openExternalApply(url: string | undefined) {
   if (!url) return;
   window.open(url, "_blank", "noopener,noreferrer");
 }
+
+// Snapshot of a session-only search result, sent to the backend to persist it (for
+// open-portal or tailoring). Shared by App and Jobs so the shape stays in sync.
+export function jobSnapshotPayload(job: JobMatch) {
+  return {
+    job_id: job.jobId || job.id.replace(/^search:[^:]+:/, ""),
+    score: job.score || 0,
+    title: job.title,
+    company: job.company,
+    location: job.location,
+    experience: job.experience,
+    salary: job.salary,
+    posted_date: "",
+    apply_link: job.externalApplyUrl || "",
+    description: job.jdFullDescription || job.jdSummary,
+    portal: job.portal,
+    tags: job.matchedSkills,
+    has_questionnaire: false,
+    is_workday: job.portal.toLowerCase() === "workday",
+    is_taleo: job.portal.toLowerCase() === "taleo",
+    apply_method: job.applyMethod || "unknown",
+    external_apply_url: job.externalApplyUrl || "",
+    portal_metadata: { source: "manual_search_session", company_logo_url: job.companyLogoUrl || "" },
+  };
+}

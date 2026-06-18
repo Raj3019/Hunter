@@ -11,7 +11,6 @@ logger = logging.getLogger(__name__)
 
 SUPPORTED_MANUAL_PORTALS = {"naukri", "foundit", "internshala"}
 DEFAULT_QUERY = "Software Developer"
-DEFAULT_LOCATION = "Bangalore"
 DEFAULT_MIN_SCORE = 60
 MAX_MANUAL_PAGES = 3
 MAX_RESULTS_PER_PAGE = 20
@@ -56,11 +55,24 @@ async def run_manual_search(
         freshness_days=freshness_days,
     )
     resume = _get_latest_resume(db, user_id)
+    # Block "blind" profile searches: with no typed query, no saved preferences, and no resume
+    # there is nothing to personalize against — don't silently fall back to the default query
+    # and present generic results as "your profile / your resume".
+    resume_available = _has_resume_evidence(resume)
+    has_profile_basis = bool(_string_list(prefs.get("job_titles")) or _string_list(prefs.get("skills")))
+    if not (query or "").strip() and not has_profile_basis and not resume_available:
+        raise DiscoveryError(400, "Add a resume or set your job preferences first, or type a role to search.")
     # Experience precedence: an explicit search value or saved Settings value (including 0)
     # wins; only when neither is set do we fall back to the resume's parsed years, so the
     # portal experience filter reflects the resume (and stays consistent with the match-score).
     if not request.get("experience_explicit"):
         request["experience_years"] = max(0, _int_value((resume or {}).get("total_experience_years"), 0))
+    # Location precedence: typed/saved locations win; otherwise fall back to the resume's
+    # parsed location, then to no filter (all-India) — never a hardcoded city.
+    if not request["locations"]:
+        resume_location = str((resume or {}).get("location") or (resume or {}).get("current_location") or "").strip()
+        if resume_location:
+            request["locations"] = [part.strip() for part in resume_location.split(",") if part.strip()]
     tokens = _get_portal_tokens(db, user_id)
     _validate_connected_portals(request["portals"], tokens)
 
@@ -136,6 +148,8 @@ async def run_manual_search(
             "page": page,
             "has_more": has_more,
             "min_score": request["min_score"],
+            "resume_used": resume_available,
+            "profile_based": not (query or "").strip(),
         }
         _update_search_run(db, run_id, run, warnings=warnings)
         return {
@@ -615,7 +629,9 @@ def _normalize_request(
     if not normalized_query:
         normalized_query = DEFAULT_QUERY
 
-    normalized_locations = _string_list(locations) or _string_list(prefs.get("locations")) or [DEFAULT_LOCATION]
+    # Locations: typed value or saved preferences. The resume's location and the all-India
+    # fallback are applied later in run_manual_search (no hardcoded city bias).
+    normalized_locations = _string_list(locations) or _string_list(prefs.get("locations"))
     normalized_work_type = [item.lower() for item in _string_list(prefs.get("work_type"))]
     normalized_avoid_companies = [item.lower() for item in _string_list(prefs.get("avoid_companies"))]
     normalized_portals = [item.lower() for item in (_string_list(portals) or ["naukri", "foundit", "internshala"])]

@@ -21,6 +21,27 @@ class ProfileUpdate(BaseModel):
     phone: str | None = None
 
 
+def _ensure_profile(user) -> None:
+    """Ensure a profiles row exists for this auth user and backfill full_name from the auth
+    metadata captured at registration (sign-up stores the name there, not in profiles).
+    Never overwrites a name the user has already set in Settings.
+    """
+    user_id = getattr(user, "id", None)
+    if not user_id:
+        return
+    metadata = getattr(user, "user_metadata", None) or {}
+    name = (metadata.get("full_name") or metadata.get("name") or "").strip()
+    db = get_db()
+    existing = db.table("profiles").select("id, full_name").eq("id", user_id).maybe_single().execute() or NULL_RESULT
+    if not existing.data:
+        db.table("profiles").upsert(
+            {"id": user_id, "email": getattr(user, "email", None), "full_name": name or None},
+            on_conflict="id",
+        ).execute()
+    elif name and not (existing.data.get("full_name") or "").strip():
+        db.table("profiles").update({"full_name": name}).eq("id", user_id).execute()
+
+
 def _profile_payload(user_id: str, email: str | None = None, fallback_full_name: str = "") -> dict:
     db = get_db()
     result = db.table("profiles").select("id, email, full_name, phone").eq("id", user_id).maybe_single().execute() or NULL_RESULT
@@ -40,6 +61,7 @@ async def login(body: AuthIn):
             "email": body.email,
             "password": body.password,
         })
+        _ensure_profile(result.user)
         profile = _profile_payload(result.user.id, result.user.email)
         return {
             "access_token": result.session.access_token,
@@ -84,6 +106,8 @@ async def register(body: AuthIn):
             "password": body.password,
             "options": {"data": metadata} if metadata else {},
         })
+        if result.user:
+            _ensure_profile(result.user)
         payload = {
             "message": "Check your email for a confirmation link",
             "user_id": result.user.id if result.user else None,

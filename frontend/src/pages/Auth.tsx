@@ -202,7 +202,7 @@ export function Auth() {
                     <input
                       type="text"
                       required
-                      placeholder="Raj Chauhan"
+                      placeholder="Your full name"
                       value={fullName}
                       onChange={(e) => { setFullName(e.target.value); if (error) setError(""); }}
                       aria-invalid={Boolean(error)}
