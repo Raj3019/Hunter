@@ -12,6 +12,11 @@ Update this file after every meaningful implementation change.
 
 ## Completed
 
+- **Setup README And Complete Schema Migration** (`README.md`, `backend/migrations/000_hunter_complete_schema.sql`)
+  - Added a root README with fresh setup steps for Supabase, backend, frontend, environment variables, portal notes, AI notes, verification commands, and common troubleshooting.
+  - Added a single idempotent Supabase schema file for new installs, including app tables, indexes, unique keys, auth profile trigger, RLS policies, the private `resumes` storage bucket, and storage policies.
+  - Included the currently used `job_matches.score_breakdown` column in the fresh schema so new setups preserve match merits/gaps without relying on fallback upserts.
+
 - **Manual Search VPS Smoke Script Update** (`backend/test_manual_search.py`)
   - Updated the manual-search smoke script to match the current `run_manual_search(page=...)` service signature instead of the stale `max_pages` argument.
   - Added `HUNTER_TEST_PORTALS` support so production checks can run against known-working VPS portals such as Foundit and Internshala without forcing Naukri.
