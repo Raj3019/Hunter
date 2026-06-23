@@ -4,7 +4,7 @@ import os
 from dotenv import load_dotenv
 
 from core.database import NULL_RESULT, get_db
-from services.job_discovery import DiscoveryError, run_manual_search
+from services.job_discovery import DiscoveryError, default_manual_portals, run_manual_search
 
 load_dotenv()
 
@@ -30,7 +30,7 @@ async def main():
 
     query = os.getenv("HUNTER_TEST_SEARCH_QUERY", "")
     location = os.getenv("HUNTER_TEST_SEARCH_LOCATION", "Bengaluru")
-    portals = _env_list("HUNTER_TEST_PORTALS", ["naukri"])
+    portals = _env_list("HUNTER_TEST_PORTALS", default_manual_portals())
     page = int(os.getenv("HUNTER_TEST_SEARCH_PAGE", os.getenv("HUNTER_TEST_SEARCH_PAGES", "1")))
     print(f"\n[INFO] Running manual search: query={query!r} location={location!r} portals={portals!r} page={page}")
 

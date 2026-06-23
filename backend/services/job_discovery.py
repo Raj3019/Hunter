@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 
 from core.database import NULL_RESULT
 from datetime import datetime, timezone
@@ -10,6 +11,7 @@ from ai.job_scorer import score_job
 logger = logging.getLogger(__name__)
 
 SUPPORTED_MANUAL_PORTALS = {"naukri", "foundit", "internshala"}
+DEFAULT_MANUAL_PORTALS = ["naukri", "foundit", "internshala"]
 DEFAULT_QUERY = "Software Developer"
 DEFAULT_MIN_SCORE = 60
 MAX_MANUAL_PAGES = 3
@@ -25,6 +27,15 @@ class DiscoveryError(Exception):
         super().__init__(detail)
         self.status_code = status_code
         self.detail = detail
+
+
+def default_manual_portals() -> list[str]:
+    configured = [
+        item.strip().lower()
+        for item in os.getenv("HUNTER_MANUAL_SEARCH_PORTALS", "").split(",")
+        if item.strip()
+    ]
+    return configured or DEFAULT_MANUAL_PORTALS
 
 
 async def run_manual_search(
@@ -634,7 +645,7 @@ def _normalize_request(
     normalized_locations = _string_list(locations) or _string_list(prefs.get("locations"))
     normalized_work_type = [item.lower() for item in _string_list(prefs.get("work_type"))]
     normalized_avoid_companies = [item.lower() for item in _string_list(prefs.get("avoid_companies"))]
-    normalized_portals = [item.lower() for item in (_string_list(portals) or ["naukri", "foundit", "internshala"])]
+    normalized_portals = [item.lower() for item in (_string_list(portals) or default_manual_portals())]
     unsupported = [item for item in normalized_portals if item not in SUPPORTED_MANUAL_PORTALS]
     if unsupported:
         raise DiscoveryError(400, f"Manual search currently supports: {', '.join(sorted(SUPPORTED_MANUAL_PORTALS))}.")

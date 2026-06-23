@@ -15,7 +15,7 @@ from core.storage import create_signed_resume_url
 from portals.base import SafeApplyManager
 from portals.naukri.jobs import Job
 from services.tailored_resume_service import create_tailored_resume_draft
-from services.job_discovery import DiscoveryError, enrich_match_context, run_manual_search
+from services.job_discovery import DiscoveryError, default_manual_portals, enrich_match_context, run_manual_search
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -33,7 +33,7 @@ class ManualSearchIn(BaseModel):
     query: str = ""
     locations: list[str] | None = None
     experience_years: int | None = None
-    portals: list[str] = Field(default_factory=lambda: ["naukri"])
+    portals: list[str] = Field(default_factory=default_manual_portals)
     page: int = 1
     results_per_page: int = 20
     min_score: int = 60

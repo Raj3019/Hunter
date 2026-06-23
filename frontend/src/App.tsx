@@ -77,6 +77,20 @@ type ManualSearchOptions = {
   minScore?: number;
 };
 
+const DEFAULT_MANUAL_SEARCH_PORTALS = ["naukri", "foundit", "internshala"];
+
+function manualSearchPortals() {
+  const configured = String(import.meta.env.VITE_MANUAL_SEARCH_PORTALS || "")
+    .split(",")
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+  return configured.length ? configured : DEFAULT_MANUAL_SEARCH_PORTALS;
+}
+
+function manualSearchPortalLabel(portals: string[]) {
+  return portals.map(portalName).join(" + ");
+}
+
 type RefreshOptions = {
   silent?: boolean;
 };
@@ -394,7 +408,7 @@ export default function App() {
   const fetchSearchPage = (query: string, locations: string[] | undefined, page: number) =>
     jobsAPI.search({
       query,
-      portals: ["naukri", "foundit", "internshala"],
+      portals: manualSearchPortals(),
       page,
       results_per_page: 20,
       locations,
@@ -406,9 +420,10 @@ export default function App() {
     async (query: string, options: ManualSearchOptions = {}) => {
       const trimmed = query.trim();
       const locations = options.locations?.filter(Boolean);
+      const portalLabel = manualSearchPortalLabel(manualSearchPortals());
       setManualSearchLoading(true);
       setManualSearchQuery(trimmed);
-      setManualSearchNotice(trimmed ? `Searching Naukri + Foundit for "${trimmed}"...` : "Finding jobs from your saved profile...");
+      setManualSearchNotice(trimmed ? `Searching ${portalLabel} for "${trimmed}"...` : `Finding jobs from your saved profile on ${portalLabel}...`);
       setLiveError("");
       searchPageRef.current = 1;
       lastSearchRef.current = { query: trimmed, locations };
